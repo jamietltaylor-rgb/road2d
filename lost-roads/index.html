@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Lost Roads</title>
+  <meta name="description" content="A slow drive through the fog. No timer, no finish line.">
+  <meta name="theme-color" content="#1b2026">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,500;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body class="game">
+  <canvas id="scene" aria-label="A car driving along a foggy road"></canvas>
+  <div id="flash"></div>
+
+  <header class="hud hud-top">
+    <div class="where">
+      <div id="place" class="place"></div>
+      <div id="region" class="meta"></div>
+    </div>
+    <div class="odo">
+      <span class="meta">Odometer</span>
+      <span id="km" class="num">0.0 km</span>
+    </div>
+  </header>
+
+  <footer class="hud hud-bottom">
+    <div class="gauges">
+      <div class="gauge">
+        <span class="meta" id="speedLabel">Speed</span>
+        <span id="speed" class="num">0 km/h</span>
+      </div>
+      <div class="gauge">
+        <span class="meta">Fuel</span>
+        <span class="bar"><i id="fuel"></i></span>
+      </div>
+    </div>
+    <div id="prompt" class="prompt"></div>
+    <nav class="links">
+      <a href="album.html" id="albumLink">Album</a>
+      <button type="button" id="radioBtn">Radio off</button>
+      <button type="button" id="soundBtn">Sound on</button>
+    </nav>
+  </footer>
+
+  <section id="intro">
+    <p class="kicker">A slow drive</p>
+    <h1>Lost Roads</h1>
+    <p class="lede">Somewhere between the hills and the sea, the road keeps going. There's no clock to beat. Stop for fuel when you need it, take a photograph now and then, and see where you end up.</p>
+    <dl class="keys">
+      <dt>&uarr; / W</dt><dd>Accelerate</dd>
+      <dt>&darr; / S</dt><dd>Brake</dd>
+      <dt>C</dt><dd>Cruise control</dd>
+      <dt>P</dt><dd>Take a postcard</dd>
+      <dt>R</dt><dd>Radio</dd>
+      <dt>M</dt><dd>Sound</dd>
+    </dl>
+    <p class="go"><span class="desktop-only">Press any key to set off</span><span class="touch-only">Tap to set off</span></p>
+    <p id="resume" class="meta"></p>
+  </section>
+
+  <div id="touch" aria-hidden="true">
+    <button type="button" data-act="brake">Brake</button>
+    <button type="button" data-act="photo">Postcard</button>
+    <button type="button" data-act="go">Drive</button>
+  </div>
+
+  <div id="toast" role="status" aria-live="polite"></div>
+
+  <script src="js/shared.js"></script>
+  <script src="js/audio.js"></script>
+  <script src="js/game.js"></script>
+</body>
+</html>

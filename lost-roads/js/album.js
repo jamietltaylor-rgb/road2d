@@ -46,6 +46,7 @@
       rm.addEventListener('click', () => {
         if (!confirm(`Remove the postcard from ${c.place}?`)) return;
         LR.saveCards(LR.getCards().filter((x) => x.id !== c.id));
+        if (window.Account) Account.deleteCard(c.id);
         render();
       });
 
@@ -57,4 +58,6 @@
   }
 
   render();
+  // if signed in, fetch postcards taken on other devices
+  if (window.Account && Account.signedIn) Account.pullCards().then((cards) => { if (cards) render(); });
 })();

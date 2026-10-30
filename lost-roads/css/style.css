@@ -221,7 +221,6 @@ body.driving #intro {
 @media (pointer: coarse) {
   .desktop-only { display: none; }
   .touch-only { display: inline; }
-  .keys { display: none; }
 
   #touch {
     position: fixed;
@@ -630,4 +629,299 @@ body.driving #spotifyDock.show { display: block; }
   }
   #spotifyDock.tucked { transform: none; }
   #settings .sheet { padding: 28px 22px 48px; }
+  .field input { font-size: 16px; }
 }
+
+
+/* ------------------------------------------------------------------ */
+/* Phone vs computer                                                   */
+/* ------------------------------------------------------------------ */
+
+.touch-keys, .rotate-hint, .install-tip { display: none; }
+body.device-touch .touch-keys { display: grid; }
+body.device-touch .desk-keys,
+body.device-touch .desk-only { display: none; }
+body.device-touch.ios .install-tip { display: block; }
+body.no-fullscreen label:has(#fullscreenToggle) { display: none; }
+
+.gamepad-note {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--light-soft);
+  margin: -14px 0 22px;
+}
+
+body.hide-cursor, body.hide-cursor * { cursor: none !important; }
+
+/* computer: roomier HUD on big screens */
+@media (min-width: 1600px) and (pointer: fine) {
+  .place { font-size: 36px; }
+  .num { font-size: 17px; }
+  .meta, .links a, .links button, .hud-link { font-size: 12px; }
+  .bar { width: 160px; }
+}
+
+/* phone: touch controls */
+body.device-touch #touch .mid {
+  display: flex;
+  gap: 12px;
+  align-items: flex-end;
+  margin-bottom: 9px;
+}
+body.device-touch #touch button.small {
+  width: 64px;
+  height: 64px;
+  font-size: 10px;
+}
+body.device-touch #touch button.on {
+  background: rgba(239, 234, 224, 0.85);
+  color: #1b2026;
+}
+
+/* phone held upright */
+@media (pointer: coarse) and (orientation: portrait) {
+  body.device-touch .rotate-hint {
+    display: block;
+    font-style: italic;
+    font-size: 16px;
+    color: var(--light-soft);
+    margin-top: 18px;
+  }
+  #intro { top: max(36px, env(safe-area-inset-top)); left: 24px; right: 24px; }
+  #intro h1 { font-size: 64px; }
+  .lede { font-size: 17px; }
+}
+
+/* phone on its side: short screen, controls at the edges */
+@media (pointer: coarse) and (orientation: landscape) and (max-height: 520px) {
+  #intro {
+    top: max(16px, env(safe-area-inset-top));
+    left: max(28px, env(safe-area-inset-left));
+    max-width: 60vw;
+  }
+  #intro h1 { font-size: 52px; margin-bottom: 10px; }
+  .lede { font-size: 15px; margin-bottom: 12px; }
+  .touch-keys { margin-bottom: 12px; }
+  .kicker { margin-bottom: 2px; }
+  #touch {
+    padding-left: max(18px, env(safe-area-inset-left));
+    padding-right: max(18px, env(safe-area-inset-right));
+  }
+  #touch button { width: 84px; height: 84px; }
+  body.device-touch #touch button.small { width: 56px; height: 56px; }
+  .hud { padding-left: max(20px, env(safe-area-inset-left)); padding-right: max(20px, env(safe-area-inset-right)); }
+  .hud-top { padding-top: 12px; }
+  .place { font-size: 20px; }
+  .hud-bottom {
+    top: 64px;
+    bottom: auto;
+    padding-top: 0;
+    padding-bottom: 0;
+    align-items: flex-start;
+  }
+  .gauges { gap: 22px; }
+  #spotifyDock { top: 70px; left: auto; right: max(20px, env(safe-area-inset-right)); width: 300px; }
+  #toast { top: 54px; font-size: 15px; }
+}
+
+/* ------------------------------------------------------------------ */
+/* Account                                                             */
+/* ------------------------------------------------------------------ */
+
+#acctIn { display: none; }
+body.signed-in #acctIn { display: block; }
+body.signed-in #acctOut { display: none; }
+
+.note.lead { margin: 0 0 6px; color: var(--ink); }
+.note.small { font-size: 13px; }
+
+#acctForm .field { margin-top: 12px; }
+#acctForm .field input { font-size: 16px; }
+
+.acct-actions {
+  display: flex;
+  gap: 22px;
+  margin: 18px 0 4px;
+}
+
+.acct-actions button[disabled] { opacity: 0.4; cursor: default; }
+
+.acct-name { font-size: 22px; margin: 0 0 4px; }
+
+.intro-acct {
+  font-size: 16px;
+  color: rgba(239, 234, 224, 0.82);
+  margin: 6px 0 0;
+}
+
+.intro-acct button {
+  font: inherit;
+  font-style: italic;
+  color: var(--light);
+  background: none;
+  border: 0;
+  border-bottom: 1px solid rgba(239, 234, 224, 0.5);
+  padding: 0;
+  cursor: pointer;
+}
+
+
+/* ------------------------------------------------------------------ */
+/* Car screen                                                          */
+/* ------------------------------------------------------------------ */
+
+#accountRadioBox { display: none; padding: 4px 0 6px 30px; }
+#accountRadioBox.show { display: block; }
+
+#carScreen {
+  --cs-bg: #111316;
+  --cs-panel: #1a1d21;
+  --cs-line: rgba(255, 255, 255, 0.08);
+  --cs-text: #eef0f2;
+  --cs-soft: rgba(238, 240, 242, 0.55);
+  --cs-accent: #e8b27a;
+  position: fixed;
+  inset: 0;
+  z-index: 15;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 24px 32px 90px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, Roboto, sans-serif;
+  color: var(--cs-text);
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+#carScreen.open { opacity: 1; }
+#carScreen.open .cs-frame { pointer-events: auto; transform: none; }
+
+.cs-frame {
+  width: min(640px, 100%);
+  height: min(380px, 100%);
+  display: flex;
+  background: var(--cs-bg);
+  border-radius: 26px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  box-shadow: 0 0 0 7px rgba(10, 11, 13, 0.85), 0 24px 60px -20px rgba(0, 0, 0, 0.7);
+  overflow: hidden;
+  transform: translateY(10px) scale(0.985);
+  transition: transform 0.3s ease;
+}
+
+.cs-rail {
+  flex: 0 0 72px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 0;
+  background: #0b0c0e;
+  border-right: 1px solid var(--cs-line);
+}
+
+.cs-rail button {
+  width: 48px;
+  height: 48px;
+  border-radius: 14px;
+  border: 0;
+  background: transparent;
+  color: var(--cs-soft);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+
+.cs-rail button.active { background: #22262b; color: var(--cs-text); }
+.cs-rail button:hover { color: var(--cs-text); }
+.cs-rail svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.cs-clock { margin-top: auto; font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; color: var(--cs-text); }
+#carScreen.signed-out .cs-rail [data-view] { visibility: hidden; }
+
+.cs-main { position: relative; flex: 1; min-width: 0; }
+
+.cs-view { display: none; position: absolute; inset: 0; padding: 22px 24px; overflow-y: auto; }
+.cs-view.active { display: block; }
+.cs-view h4 { margin: 0 0 14px; font-size: 22px; font-weight: 650; letter-spacing: -0.01em; }
+
+.cs-now { display: flex; gap: 24px; align-items: center; height: 100%; }
+.cs-art {
+  flex: 0 0 auto;
+  width: min(210px, 38%);
+  aspect-ratio: 1;
+  border-radius: 12px;
+  background: #23272c center / cover no-repeat;
+  box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.8);
+}
+.cs-meta { flex: 1; min-width: 0; }
+.cs-title { margin: 0; font-size: 22px; font-weight: 650; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cs-artist { margin: 4px 0 16px; font-size: 16px; color: var(--cs-soft); line-height: 1.35; }
+.cs-progress { display: flex; align-items: center; gap: 10px; font-size: 12px; color: var(--cs-soft); font-variant-numeric: tabular-nums; }
+.cs-bar { flex: 1; height: 4px; border-radius: 2px; background: rgba(255, 255, 255, 0.14); overflow: hidden; }
+.cs-bar i { display: block; height: 100%; width: 0; background: var(--cs-text); border-radius: 2px; }
+.cs-controls { display: flex; align-items: center; justify-content: center; gap: 22px; margin: 16px 0 10px; }
+.cs-controls button { border: 0; background: none; color: var(--cs-text); width: 46px; height: 46px; display: grid; place-items: center; cursor: pointer; border-radius: 50%; }
+.cs-controls button svg { width: 26px; height: 26px; }
+.cs-controls .cs-big { width: 62px; height: 62px; background: var(--cs-text); color: var(--cs-bg); }
+.cs-controls .cs-big svg { width: 28px; height: 28px; }
+.cs-controls button:active { transform: scale(0.94); }
+.cs-volume { display: flex; align-items: center; gap: 10px; color: var(--cs-soft); }
+.cs-volume svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.8; flex: 0 0 auto; }
+.cs-volume input { flex: 1; accent-color: var(--cs-text); }
+.cs-device { margin: 10px 0 0; font-size: 12px; color: var(--cs-accent); min-height: 1em; }
+
+.cs-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 16px; }
+.cs-tile { border: 0; background: none; color: var(--cs-text); text-align: left; padding: 0; cursor: pointer; }
+.cs-cover { display: block; aspect-ratio: 1; border-radius: 10px; background: #23272c center / cover no-repeat; margin-bottom: 7px; }
+.cs-tile .cs-name { font-size: 13px; font-weight: 550; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+
+.cs-list { display: flex; flex-direction: column; }
+.cs-row { display: flex; align-items: center; gap: 12px; padding: 8px 4px; border: 0; border-bottom: 1px solid var(--cs-line); background: none; color: var(--cs-text); text-align: left; cursor: pointer; }
+.cs-row:hover, .cs-tile:hover .cs-cover { filter: brightness(1.12); }
+.cs-thumb { flex: 0 0 44px; height: 44px; border-radius: 6px; background: #23272c center / cover no-repeat; }
+.cs-text { min-width: 0; display: flex; flex-direction: column; }
+.cs-row .cs-name { font-size: 15px; font-weight: 550; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cs-sub { font-size: 13px; color: var(--cs-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+#csSearch {
+  width: 100%;
+  font: inherit;
+  font-size: 16px;
+  color: var(--cs-text);
+  background: #22262b;
+  border: 0;
+  border-radius: 12px;
+  padding: 12px 14px;
+  margin-bottom: 10px;
+  outline: none;
+  user-select: text;
+}
+
+.cs-empty { color: var(--cs-soft); font-size: 15px; }
+
+.cs-connect { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 0 12px; }
+.cs-badge { width: 56px; height: 56px; border-radius: 16px; background: #22262b; display: grid; place-items: center; margin-bottom: 14px; }
+.cs-badge svg { width: 28px; height: 28px; fill: none; stroke: var(--cs-accent); stroke-width: 1.8; }
+.cs-connect h4 { margin: 0 0 8px; }
+.cs-connect p { margin: 0 0 16px; color: var(--cs-soft); font-size: 15px; line-height: 1.45; max-width: 380px; }
+.cs-connect .cs-fine { font-size: 12px; margin: 14px 0 0; }
+.cs-pill { font: inherit; font-size: 15px; font-weight: 600; color: #0d0f11; background: var(--cs-text); border: 0; border-radius: 999px; padding: 12px 24px; cursor: pointer; }
+
+.cs-error { position: absolute; left: 24px; right: 24px; bottom: 10px; margin: 0; font-size: 13px; color: var(--cs-accent); pointer-events: none; }
+
+/* phones: the screen takes over most of the display */
+body.device-touch #carScreen { justify-content: center; padding: max(12px, env(safe-area-inset-top)) 12px 12px; }
+body.device-touch .cs-frame { height: min(420px, 100%); }
+@media (orientation: portrait) {
+  body.device-touch #carScreen { align-items: flex-end; padding-bottom: max(12px, env(safe-area-inset-bottom)); }
+  body.device-touch .cs-frame { height: min(560px, 78vh); flex-direction: column-reverse; }
+  body.device-touch .cs-rail { flex: 0 0 64px; flex-direction: row; justify-content: space-around; padding: 0 8px; border-right: 0; border-top: 1px solid var(--cs-line); }
+  body.device-touch .cs-clock { margin: 0; }
+  body.device-touch .cs-now { flex-direction: column; text-align: center; gap: 16px; justify-content: center; }
+  body.device-touch .cs-art { width: min(200px, 55%); }
+  body.device-touch .cs-meta { width: 100%; }
+}
+body.device-touch.screen-open #touch { opacity: 0; pointer-events: none; }

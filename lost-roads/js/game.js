@@ -19,6 +19,14 @@
 
   let W = 1280, H = DESIGN_H, scale = 1, dpr = 1, yOff = 0;
 
+  // Phone/tablet or computer? Touch screens without a precise pointer get the phone layout.
+  const coarse = matchMedia('(pointer: coarse)');
+  const IS_TOUCH = coarse.matches || (navigator.maxTouchPoints > 0 && !matchMedia('(pointer: fine)').matches);
+  const IS_IOS = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  document.body.classList.add(IS_TOUCH ? 'device-touch' : 'device-desk');
+  if (IS_IOS) document.body.classList.add('ios');
+  if (!document.fullscreenEnabled) document.body.classList.add('no-fullscreen');
+
   // ---------------------------------------------------------------------------
   // Small maths and colour helpers
   // ---------------------------------------------------------------------------
@@ -175,7 +183,7 @@
   const saved = LR.load(LR.KEYS.journey, null);
   const stats = LR.load(LR.KEYS.stats, { metres: 0 });
   const settings = Object.assign(
-    { muted: false, radio: false, radioSource: 'builtin', engine: 'petrol', engineVol: 0.8, radioVol: 0.8, spotifyUri: '' },
+    { muted: false, radio: false, radioSource: 'builtin', engine: 'petrol', engineVol: 0.8, radioVol: 0.8, spotifyUri: '', lowPower: false },
     LR.load(LR.KEYS.settings, {})
   );
 
@@ -266,18 +274,23 @@
   }
 
   function resize() {
-    dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const low = settings.lowPower;
+    const maxDpr = low ? 1 : IS_TOUCH ? 1.6 : 2;
+    const maxPx = low ? 900000 : IS_TOUCH ? 2300000 : 4200000;
+    dpr = Math.min(window.devicePixelRatio || 1, maxDpr);
     const px = innerWidth * innerHeight * dpr * dpr;
-    if (px > 4200000) dpr = Math.sqrt(4200000 / (innerWidth * innerHeight));
+    if (px > maxPx) dpr = Math.sqrt(maxPx / (innerWidth * innerHeight));
     canvas.width = Math.round(innerWidth * dpr);
     canvas.height = Math.round(innerHeight * dpr);
     canvas.style.width = innerWidth + 'px';
     canvas.style.height = innerHeight + 'px';
     // tall phone screens get zoomed out so you can still see the road ahead
-    scale = Math.min(canvas.height / DESIGN_H, canvas.width / 700);
+    // phones on their side: zoom out a touch and keep the road above the on-screen buttons
+    const touchLandscape = IS_TOUCH && innerWidth > innerHeight;
+    scale = Math.min(canvas.height / (DESIGN_H * (touchLandscape ? 1.24 : 1)), canvas.width / 700);
     W = canvas.width / scale;
     const extra = canvas.height / scale - DESIGN_H;
-    yOff = extra * 0.5;
+    yOff = touchLandscape ? 0 : extra * 0.5;
     H = DESIGN_H + extra - yOff;
     carX = Math.min(W * 0.34, 520);
     vignette = ctx.createRadialGradient(W / 2, H * 0.55, H * 0.35, W / 2, H * 0.55, Math.max(W, H) * 0.85);
@@ -869,7 +882,7 @@
       ctx.strokeStyle = rgb(mix(fog, hex('#ffffff'), 0.3), 0.32 * rain);
       ctx.lineWidth = 1;
       ctx.beginPath();
-      const count = Math.floor(drops.length * rain);
+      const count = Math.floor(drops.length * rain * (settings.lowPower ? 0.35 : IS_TOUCH ? 0.6 : 1));
       for (let i = 0; i < count; i++) {
         const d = drops[i];
         d.y += d.sp * dt;
@@ -907,7 +920,13 @@
     settings: $('settings'), settingsBtn: $('settingsBtn'), closeSettings: $('closeSettings'), engineVol: $('engineVol'),
     radioVol: $('radioVol'), radioVolRow: $('radioVolRow'), soundAll: $('soundAll'), spotifyBox: $('spotifyBox'),
     spotifyLink: $('spotifyLink'), spotifyLoad: $('spotifyLoad'), spotifyError: $('spotifyError'),
-    dock: $('spotifyDock'), dockHide: $('dockHide'), embed: $('spotifyEmbed')
+    dock: $('spotifyDock'), dockHide: $('dockHide'), embed: $('spotifyEmbed'),
+    acctForm: $('acctForm'), acctUser: $('acctUser'), acctPass: $('acctPass'), acctSignIn: $('acctSignIn'),
+    acctCreate: $('acctCreate'), acctError: $('acctError'), acctName: $('acctName'), acctStatus: $('acctStatus'),
+    acctSave: $('acctSave'), acctSignOut: $('acctSignOut'), introAcct: $('introAcct'),
+    fullscreen: $('fullscreenToggle'), lowPower: $('lowPower'),
+    screenBtn: $('screenBtn'), accountRadioBox: $('accountRadioBox'), spAcctText: $('spAcctText'),
+    spOpenScreen: $('spOpenScreen'), spDisconnect: $('spDisconnect')
   };
 
   let toastTimer = 0;
@@ -941,6 +960,8 @@
     ui.km.textContent = `${(info.distM / 1000).toFixed(1)} km`;
     ui.speed.textContent = `${Math.round(state.v * 3.6)} km/h`;
     ui.speedLabel.textContent = state.cruise ? 'Cruise' : 'Speed';
+    const cb = document.querySelector('#touch [data-act="cruise"]');
+    if (cb) cb.classList.toggle('on', state.cruise);
     ui.fuel.style.width = `${state.fuel}%`;
     ui.fuel.classList.toggle('low', state.fuel < 15);
 
@@ -1042,6 +1063,8 @@
       return;
     }
     updateAlbumLink();
+    if (navigator.vibrate) navigator.vibrate(12);
+    Account.pushCard(cards[0]);
     toast(`Postcard from ${place} added to your album`);
   }
 
@@ -1056,16 +1079,18 @@
     let throttle = 0;
 
     if (state.started && !state.paused) {
+      readGamepad();
+      const goNow = input.go || pad.go, brakeNow = input.brake || pad.brake;
       const canDrive = state.fuel > 0;
-      if (input.go && canDrive) {
+      if (goNow && canDrive) {
         throttle = 1;
         state.cruise = false;
       }
-      if (input.brake) state.cruise = false;
+      if (brakeNow) state.cruise = false;
 
       if (throttle) state.v += 5.5 * (1 - state.v / (MAX_V * 1.05)) * dt;
       else if (state.cruise && canDrive) state.v += clamp(state.cruiseV - state.v, -2, 2) * dt;
-      if (input.brake) state.v -= 11 * dt;
+      if (brakeNow) state.v -= 11 * dt;
 
       const slope = (roadY(carW + 30) - roadY(carW - 30)) / 60;
       if (!state.cruise || !canDrive) state.v -= (0.18 + state.v * 0.012) * dt;
@@ -1101,7 +1126,9 @@
   }
 
   let saveTimer = 0;
+  let freezeSaves = false;   // set while we reload with progress downloaded from the account
   function persist(force) {
+    if (freezeSaves) return;
     saveTimer -= 1;
     if (!force && saveTimer > 0) return;
     saveTimer = 300;
@@ -1133,6 +1160,8 @@
     document.body.classList.add('driving');
     RoadAudio.start();
     applyAudioSettings();
+    keepAwake();
+    if (IS_TOUCH && innerHeight > innerWidth * 1.15) setTimeout(() => toast('Tip: turn your phone sideways for a wider view'), 1500);
   }
 
   function saveSettings() { LR.save(LR.KEYS.settings, settings); }
@@ -1149,7 +1178,18 @@
   function applyRadio() {
     const on = settings.radio;
     const spotify = settings.radioSource === 'spotify' && settings.spotifyUri;
-    RoadAudio.setRadio(on && !spotify && state.started);
+    const account = settings.radioSource === 'account';
+    RoadAudio.setRadio(on && !spotify && !account && state.started);
+    if (account) {
+      ui.dock.classList.remove('show');
+      SpotifyRadio.pause();
+      if (state.started && SpotifyAccount.connected) {
+        if (on) SpotifyAccount.resume(); else SpotifyAccount.pause();
+      }
+      syncButtons();
+      return;
+    }
+    if (SpotifyAccount.connected) SpotifyAccount.pause();
     ui.dock.classList.toggle('show', !!(on && spotify));
     if (on && spotify && state.started) {
       SpotifyRadio.load(settings.spotifyUri, ui.embed, spotifyFailed);
@@ -1172,6 +1212,7 @@
   }
 
   function toggleRadio() {
+    if (settings.radioSource === 'account' && SpotifyAccount.connected) SpotifyAccount.refresh();
     settings.radio = !settings.radio;
     if (settings.radio && settings.radioSource === 'spotify' && !settings.spotifyUri) {
       settings.radioSource = 'builtin';
@@ -1183,12 +1224,13 @@
 
   function radioValue() {
     if (!settings.radio) return 'off';
+    if (settings.radioSource === 'account') return 'account';
     return settings.radioSource === 'spotify' ? 'spotify' : 'builtin';
   }
 
   function syncButtons() {
     ui.soundBtn.textContent = settings.muted ? 'Sound off' : 'Sound on';
-    const src = settings.radioSource === 'spotify' && settings.spotifyUri ? 'Spotify' : 'Radio';
+    const src = (settings.radioSource === 'spotify' && settings.spotifyUri) || settings.radioSource === 'account' ? 'Spotify' : 'Radio';
     ui.radioBtn.textContent = settings.radio ? `${src} on` : 'Radio off';
     // reflect state in the settings panel
     document.querySelectorAll('input[name="engine"]').forEach((el) => (el.checked = el.value === settings.engine));
@@ -1196,9 +1238,18 @@
     ui.engineVol.value = settings.engineVol;
     ui.radioVol.value = settings.radioVol;
     ui.soundAll.checked = !settings.muted;
+    ui.lowPower.checked = !!settings.lowPower;
+    ui.fullscreen.checked = !!document.fullscreenElement;
     const spotifyChosen = radioValue() === 'spotify' || (settings.radioSource === 'spotify' && !settings.spotifyUri && pendingSpotify);
     ui.spotifyBox.classList.toggle('show', spotifyChosen);
     ui.radioVolRow.style.display = radioValue() === 'builtin' ? '' : 'none';
+    ui.accountRadioBox.classList.toggle('show', radioValue() === 'account' || settings.radioSource === 'account');
+    ui.spDisconnect.hidden = !SpotifyAccount.connected;
+    ui.spAcctText.textContent = !SpotifyAccount.configured
+      ? 'Spotify sign-in hasn\u2019t been switched on for this site yet (see the README). You can still use a Spotify link.'
+      : SpotifyAccount.connected
+        ? 'Spotify is connected. Open the car screen (N, or Music at the top) to choose what to play.'
+        : 'Open the car screen and tap Connect Spotify. Needs Spotify Premium.';
     if (settings.spotifyUri && !ui.spotifyLink.value) ui.spotifyLink.value = uriToLink(settings.spotifyUri);
   }
 
@@ -1240,6 +1291,16 @@
       settings.radio = true;
       settings.radioSource = 'builtin';
       pendingSpotify = false;
+    } else if (el.value === 'account') {
+      settings.radioSource = 'account';
+      settings.radio = true;
+      pendingSpotify = false;
+      if (SpotifyAccount.configured && !SpotifyAccount.connected) {
+        saveSettings();
+        closeSettings();
+        CarScreen.open('connect');
+        return;
+      }
     } else {
       settings.radioSource = 'spotify';
       if (settings.spotifyUri) settings.radio = true;
@@ -1282,6 +1343,171 @@
   });
   SpotifyRadio.onPlaybackChange(() => syncButtons());
 
+  // ---------------------------------------------------------------------------
+  // Phone and computer extras
+  // ---------------------------------------------------------------------------
+  const pad = { go: false, brake: false, prev: [] };
+  function readGamepad() {
+    const pads = navigator.getGamepads ? navigator.getGamepads() : [];
+    pad.go = pad.brake = false;
+    for (const gp of pads) {
+      if (!gp) continue;
+      const b = (i) => gp.buttons[i] || { value: 0, pressed: false };
+      pad.go = b(7).value > 0.15 || b(0).pressed || (gp.axes[1] || 0) < -0.5;
+      pad.brake = b(6).value > 0.15 || b(1).pressed || (gp.axes[1] || 0) > 0.5;
+      const pressed = (i) => b(i).pressed && !pad.prev[i];
+      if (pressed(2) && lastInfo) takePostcard(lastInfo);
+      if (pressed(3)) toggleCruise();
+      if (pressed(9)) openSettings();
+      if (pressed(8)) toggleRadio();
+      pad.prev = gp.buttons.map((x) => x.pressed);
+      break;
+    }
+  }
+  addEventListener('gamepadconnected', () => { begin(); toast('Controller connected. Right trigger drives, left trigger brakes.'); });
+
+  function toggleCruise() {
+    state.cruise = !state.cruise && state.v > 2;
+    state.cruiseV = state.v;
+    if (state.cruise) toast(`Cruise control set at ${Math.round(state.v * 3.6)} km/h`);
+    const btn = document.querySelector('#touch [data-act="cruise"]');
+    if (btn) btn.classList.toggle('on', state.cruise);
+  }
+
+  // keep the screen on while driving on a phone
+  let wakeLock = null;
+  async function keepAwake() {
+    if (!IS_TOUCH || !('wakeLock' in navigator) || wakeLock) return;
+    try {
+      wakeLock = await navigator.wakeLock.request('screen');
+      wakeLock.addEventListener('release', () => { wakeLock = null; });
+    } catch (e) { /* not allowed right now */ }
+  }
+
+  function toggleFullscreen(on) {
+    if (!document.fullscreenEnabled) return;
+    const want = on === undefined ? !document.fullscreenElement : on;
+    if (want && !document.fullscreenElement) {
+      document.documentElement.requestFullscreen({ navigationUI: 'hide' }).then(() => {
+        if (IS_TOUCH && screen.orientation && screen.orientation.lock) screen.orientation.lock('landscape').catch(() => {});
+      }).catch(() => {});
+    } else if (!want && document.fullscreenElement) {
+      document.exitFullscreen().catch(() => {});
+    }
+  }
+  document.addEventListener('fullscreenchange', () => { ui.fullscreen.checked = !!document.fullscreenElement; });
+
+  // on a computer, hide the mouse pointer while you're just driving
+  let cursorTimer = 0;
+  if (!IS_TOUCH) {
+    addEventListener('mousemove', () => {
+      document.body.classList.remove('hide-cursor');
+      clearTimeout(cursorTimer);
+      cursorTimer = setTimeout(() => { if (state.started && !settingsOpen()) document.body.classList.add('hide-cursor'); }, 2500);
+    });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Account
+  // ---------------------------------------------------------------------------
+  function syncAccountUi() {
+    document.body.classList.toggle('signed-in', Account.signedIn);
+    ui.acctName.textContent = Account.username;
+    if (Account.status) ui.acctStatus.textContent = Account.status;
+    else if (Account.lastSaved) ui.acctStatus.textContent = `Your progress saves to your account automatically. Last saved at ${new Date(Account.lastSaved).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}.`;
+    else ui.acctStatus.textContent = 'Your progress saves to your account automatically.';
+    ui.introAcct.innerHTML = '';
+    if (Account.signedIn) {
+      ui.introAcct.textContent = `Signed in as ${Account.username}.`;
+    } else {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.textContent = 'Sign in';
+      b.addEventListener('pointerdown', (e) => e.stopPropagation());
+      b.addEventListener('click', (e) => { e.stopPropagation(); openSettings(); setTimeout(() => ui.acctUser.focus(), 300); });
+      ui.introAcct.append(b, ' to save your progress to an account.');
+    }
+  }
+  Account.onChange(syncAccountUi);
+
+  async function accountEnter(create) {
+    const username = ui.acctUser.value.trim();
+    const password = ui.acctPass.value;
+    ui.acctError.textContent = '';
+    if (!username || !password) { ui.acctError.textContent = 'Type a username and password first.'; return; }
+    if (create && password.length < 8) { ui.acctError.textContent = 'Passwords need at least 8 characters.'; return; }
+    ui.acctSignIn.disabled = ui.acctCreate.disabled = true;
+    persist(true);
+    try {
+      const replaced = await Account.enter(username, password, create);
+      ui.acctPass.value = '';
+      if (replaced) {
+        freezeSaves = true;
+        toast('Loading your saved journey…');
+        setTimeout(() => location.reload(), 900);
+      } else {
+        toast(create ? `Welcome, ${Account.username}. Your progress is now saved to your account.` : `Signed in as ${Account.username}`);
+        updateAlbumLink();
+      }
+    } catch (err) {
+      ui.acctError.textContent = err.message;
+    } finally {
+      ui.acctSignIn.disabled = ui.acctCreate.disabled = false;
+    }
+  }
+
+  ui.acctForm.addEventListener('submit', (e) => { e.preventDefault(); accountEnter(false); });
+  ui.acctCreate.addEventListener('click', () => accountEnter(true));
+  ui.acctSave.addEventListener('click', async () => { persist(true); await Account.pushSave(true); syncAccountUi(); });
+  ui.acctSignOut.addEventListener('click', async () => {
+    persist(true);
+    await Account.signOut();
+    toast('Signed out. Your progress is still on this device too.');
+  });
+  ui.fullscreen.addEventListener('change', () => toggleFullscreen(ui.fullscreen.checked));
+  ui.lowPower.addEventListener('change', () => { settings.lowPower = ui.lowPower.checked; saveSettings(); resize(); buildDrops(); });
+
+  // ---------------------------------------------------------------------------
+  // Car screen (Spotify account)
+  // ---------------------------------------------------------------------------
+  CarScreen.init({
+    getClock: () => clockText(state.tod),
+    beforeLeave: () => { persist(true); Account.pushSaveOnExit(); },
+    onPlay: () => {
+      begin();
+      settings.radioSource = 'account';
+      settings.radio = true;
+      RoadAudio.setRadio(false);
+      SpotifyRadio.pause();
+      ui.dock.classList.remove('show');
+      saveSettings();
+      syncButtons();
+    }
+  });
+  SpotifyAccount.onChange(syncButtons);
+  ui.screenBtn.addEventListener('click', (e) => { e.currentTarget.blur(); begin(); CarScreen.toggle(); });
+  ui.spOpenScreen.addEventListener('click', () => { closeSettings(); CarScreen.open(); });
+  ui.spDisconnect.addEventListener('click', () => {
+    SpotifyAccount.disconnect();
+    if (settings.radioSource === 'account') { settings.radioSource = 'builtin'; settings.radio = false; saveSettings(); }
+    syncButtons();
+    toast('Spotify disconnected');
+  });
+  SpotifyAccount.handleRedirect().then((result) => {
+    if (result === 'connected') {
+      settings.radioSource = 'account';
+      settings.radio = true;
+      saveSettings();
+      syncButtons();
+      toast('Spotify connected. Pick something to play.');
+      CarScreen.open('playlists');
+    } else if (result === 'denied') {
+      toast('Spotify wasn\u2019t connected.');
+    } else if (result === 'failed') {
+      toast('Spotify sign-in didn\u2019t work. Try again from the car screen.');
+    }
+  });
+
   function tow() {
     if (state.fuel > 0 || state.v > 0.5) return;
     const st = nextStationAfter(state.cam + carX + 1);
@@ -1297,15 +1523,14 @@
   addEventListener('keydown', (e) => {
     if (e.metaKey || e.ctrlKey || e.altKey) return;
     if (settingsOpen()) { if (e.code === 'Escape') closeSettings(); return; }
+    if (CarScreen.isOpen && e.code === 'Escape') { CarScreen.close(); return; }
+    if (e.code === 'KeyN' && !e.repeat) { begin(); CarScreen.toggle(); return; }
     if (e.code === 'Escape' || e.code === 'KeyO') { e.preventDefault(); openSettings(); return; }
     if (!state.started) { begin(); if (!GO.includes(e.code)) return; }
     if (GO.includes(e.code)) { input.go = true; e.preventDefault(); }
     else if (BRAKE.includes(e.code)) { input.brake = true; e.preventDefault(); }
-    else if (e.code === 'KeyC' && !e.repeat) {
-      state.cruise = !state.cruise && state.v > 2;
-      state.cruiseV = state.v;
-      if (state.cruise) toast(`Cruise control set at ${Math.round(state.v * 3.6)} km/h`);
-    }
+    else if (e.code === 'KeyC' && !e.repeat) toggleCruise();
+    else if (e.code === 'KeyF' && !e.repeat) toggleFullscreen();
     else if ((e.code === 'KeyP' || e.code === 'Space') && !e.repeat) { e.preventDefault(); if (lastInfo) takePostcard(lastInfo); }
     else if (e.code === 'KeyR' && !e.repeat) toggleRadio();
     else if (e.code === 'KeyM' && !e.repeat) toggleSound();
@@ -1318,8 +1543,13 @@
   });
 
   addEventListener('blur', () => { input.go = input.brake = false; persist(true); });
-  addEventListener('pagehide', () => persist(true));
-  document.addEventListener('visibilitychange', () => { if (document.hidden) persist(true); });
+  addEventListener('pagehide', () => { persist(true); Account.pushSaveOnExit(); });
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) { persist(true); Account.pushSaveOnExit(); }
+    else if (state.started) keepAwake();
+  });
+  // copy progress to the account once a minute while signed in
+  setInterval(() => { if (Account.signedIn && state.started) { persist(true); Account.pushSave(); } }, 60000);
 
   ui.intro.addEventListener('pointerdown', begin);
   canvas.addEventListener('pointerdown', begin);
@@ -1336,6 +1566,8 @@
       if (act === 'go') input.go = true;
       if (act === 'brake') input.brake = true;
       if (act === 'photo' && lastInfo) takePostcard(lastInfo);
+      if (act === 'cruise') toggleCruise();
+      if (navigator.vibrate && (act === 'go' || act === 'brake')) navigator.vibrate(6);
       if (act === 'go' && state.fuel <= 0) tow();
     });
     const release = () => {
@@ -1358,6 +1590,7 @@
   resize();
   buildDrops();
   syncButtons();
+  syncAccountUi();
   updateAlbumLink();
   if (saved && saved.cam > 0) {
     const n = Math.floor((saved.cam + carX) / PXM / PLACE_EVERY);

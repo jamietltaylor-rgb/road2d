@@ -24,6 +24,7 @@
     <div class="odo">
       <span class="meta">Odometer</span>
       <span id="km" class="num">0.0 km</span>
+      <button type="button" id="settingsBtn" class="hud-link">Settings</button>
     </div>
   </header>
 
@@ -57,6 +58,7 @@
       <dt>P</dt><dd>Take a postcard</dd>
       <dt>R</dt><dd>Radio</dd>
       <dt>M</dt><dd>Sound</dd>
+      <dt>Esc</dt><dd>Settings</dd>
     </dl>
     <p class="go"><span class="desktop-only">Press any key to set off</span><span class="touch-only">Tap to set off</span></p>
     <p id="resume" class="meta"></p>
@@ -68,10 +70,67 @@
     <button type="button" data-act="go">Drive</button>
   </div>
 
+
+  <div id="spotifyDock" aria-label="Spotify player">
+    <div class="dock-head"><span class="meta">Radio · Spotify</span><button type="button" id="dockHide" class="dock-btn">Hide</button></div>
+    <div id="spotifyEmbed"></div>
+  </div>
+
+  <aside id="settings" aria-hidden="true">
+    <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
+      <header class="sheet-head">
+        <div>
+          <p class="kicker">Pulled over</p>
+          <h2 id="settingsTitle">Settings</h2>
+        </div>
+        <button type="button" id="closeSettings" class="link">Back to the road</button>
+      </header>
+
+      <section>
+        <h3>Engine</h3>
+        <div class="choices" id="engineChoices">
+          <label><input type="radio" name="engine" value="petrol"><span class="name">Old petrol</span><span class="desc">The estate's own four-cylinder. Warm, a little tired.</span></label>
+          <label><input type="radio" name="engine" value="diesel"><span class="name">Farm diesel</span><span class="desc">A low clatter, like a Land Rover on a cold morning.</span></label>
+          <label><input type="radio" name="engine" value="twostroke"><span class="name">Two-stroke</span><span class="desc">Thin and buzzy, like a moped that's been pushed too hard.</span></label>
+          <label><input type="radio" name="engine" value="electric"><span class="name">Electric</span><span class="desc">A soft rising whine. Silent when you stop.</span></label>
+          <label><input type="radio" name="engine" value="off"><span class="name">No engine</span><span class="desc">Just the road, the wind and the rain.</span></label>
+        </div>
+        <label class="slider"><span class="meta">Engine volume</span><input type="range" id="engineVol" min="0" max="1" step="0.05"></label>
+      </section>
+
+      <section>
+        <h3>Radio</h3>
+        <div class="choices" id="radioChoices">
+          <label><input type="radio" name="radio" value="off"><span class="name">Off</span><span class="desc">Nothing playing.</span></label>
+          <label><input type="radio" name="radio" value="builtin"><span class="name">Car radio</span><span class="desc">Slow, hazy chords that drift along with you.</span></label>
+          <label><input type="radio" name="radio" value="spotify"><span class="name">Your Spotify</span><span class="desc">Play any playlist, album or song.</span></label>
+        </div>
+        <div id="spotifyBox">
+          <label class="field">
+            <span class="meta">Spotify link</span>
+            <span class="field-row">
+              <input type="text" id="spotifyLink" inputmode="url" autocomplete="off" spellcheck="false" placeholder="https://open.spotify.com/playlist/...">
+              <button type="button" id="spotifyLoad" class="link">Play</button>
+            </span>
+          </label>
+          <p class="note">In Spotify, open a playlist, album or song, choose <em>Share</em> and then <em>Copy link</em>, and paste it here. If you're logged in to Spotify in this browser you'll usually hear full songs. If not, Spotify plays 30-second previews. If nothing starts, press play on the Spotify player.</p>
+          <p class="note error" id="spotifyError"></p>
+        </div>
+        <label class="slider" id="radioVolRow"><span class="meta">Car radio volume</span><input type="range" id="radioVol" min="0" max="1" step="0.05"></label>
+      </section>
+
+      <section>
+        <h3>Sound</h3>
+        <label class="check"><input type="checkbox" id="soundAll"><span class="name">Game sound on</span><span class="desc">Engine, road, rain and the car radio. Spotify has its own volume on its player.</span></label>
+      </section>
+    </div>
+  </aside>
+
   <div id="toast" role="status" aria-live="polite"></div>
 
   <script src="js/shared.js"></script>
   <script src="js/audio.js"></script>
+  <script src="js/spotify.js"></script>
   <script src="js/game.js"></script>
 </body>
 </html>

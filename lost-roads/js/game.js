@@ -174,7 +174,10 @@
   // ---------------------------------------------------------------------------
   const saved = LR.load(LR.KEYS.journey, null);
   const stats = LR.load(LR.KEYS.stats, { metres: 0 });
-  const settings = LR.load(LR.KEYS.settings, { muted: false, radio: false });
+  const settings = Object.assign(
+    { muted: false, radio: false, radioSource: 'builtin', engine: 'petrol', engineVol: 0.8, radioVol: 0.8, spotifyUri: '' },
+    LR.load(LR.KEYS.settings, {})
+  );
 
   const state = {
     cam: saved ? saved.cam : 0,
@@ -185,7 +188,8 @@
     cruiseV: 0,
     started: false,
     time: 0,
-    lastPlace: -1
+    lastPlace: -1,
+    paused: false
   };
   const input = { go: false, brake: false };
 
@@ -899,7 +903,11 @@
   const ui = {
     place: $('place'), region: $('region'), km: $('km'), speed: $('speed'), speedLabel: $('speedLabel'),
     fuel: $('fuel'), prompt: $('prompt'), intro: $('intro'), resume: $('resume'), toast: $('toast'),
-    flash: $('flash'), soundBtn: $('soundBtn'), radioBtn: $('radioBtn'), albumLink: $('albumLink')
+    flash: $('flash'), soundBtn: $('soundBtn'), radioBtn: $('radioBtn'), albumLink: $('albumLink'),
+    settings: $('settings'), settingsBtn: $('settingsBtn'), closeSettings: $('closeSettings'), engineVol: $('engineVol'),
+    radioVol: $('radioVol'), radioVolRow: $('radioVolRow'), soundAll: $('soundAll'), spotifyBox: $('spotifyBox'),
+    spotifyLink: $('spotifyLink'), spotifyLoad: $('spotifyLoad'), spotifyError: $('spotifyError'),
+    dock: $('spotifyDock'), dockHide: $('dockHide'), embed: $('spotifyEmbed')
   };
 
   let toastTimer = 0;
@@ -1042,12 +1050,12 @@
   // ---------------------------------------------------------------------------
   function step(dt) {
     state.time += dt;
-    state.tod = (state.tod + dt / DAY_SECONDS) % 1;
+    if (!state.paused) state.tod = (state.tod + dt / DAY_SECONDS) % 1;
 
     const carW = state.cam + carX;
     let throttle = 0;
 
-    if (state.started) {
+    if (state.started && !state.paused) {
       const canDrive = state.fuel > 0;
       if (input.go && canDrive) {
         throttle = 1;
@@ -1089,7 +1097,7 @@
     particles = particles.filter((p) => p.age < p.life);
 
     const rainNow = clamp((noise(((state.cam + carX) / PXM) * 0.0009, 77) * 0.5 + 0.5) * 2.2 - 1.45, 0, 1);
-    RoadAudio.update(state.v / MAX_V, throttle, rainNow, state.started);
+    RoadAudio.update(state.v / MAX_V, throttle, rainNow, state.started && !state.paused);
   }
 
   let saveTimer = 0;
@@ -1124,29 +1132,155 @@
     state.started = true;
     document.body.classList.add('driving');
     RoadAudio.start();
+    applyAudioSettings();
+  }
+
+  function saveSettings() { LR.save(LR.KEYS.settings, settings); }
+
+  function applyAudioSettings() {
     RoadAudio.setMuted(settings.muted);
-    RoadAudio.setRadio(settings.radio);
+    RoadAudio.setEngine(settings.engine);
+    RoadAudio.setEngineVolume(settings.engineVol);
+    RoadAudio.setRadioVolume(settings.radioVol);
+    applyRadio();
+  }
+
+  // The radio has an on/off switch (R) and a source: the built-in car radio or Spotify
+  function applyRadio() {
+    const on = settings.radio;
+    const spotify = settings.radioSource === 'spotify' && settings.spotifyUri;
+    RoadAudio.setRadio(on && !spotify && state.started);
+    ui.dock.classList.toggle('show', !!(on && spotify));
+    if (on && spotify && state.started) {
+      SpotifyRadio.load(settings.spotifyUri, ui.embed, spotifyFailed);
+      SpotifyRadio.play();
+    } else {
+      SpotifyRadio.pause();
+    }
+    syncButtons();
+  }
+
+  function spotifyFailed() {
+    ui.spotifyError.textContent = 'Spotify’s player couldn’t load. Check your connection, or try turning off any content blocker for this site.';
   }
 
   function toggleSound() {
     settings.muted = !settings.muted;
     RoadAudio.setMuted(settings.muted);
-    LR.save(LR.KEYS.settings, settings);
+    saveSettings();
     syncButtons();
   }
 
   function toggleRadio() {
     settings.radio = !settings.radio;
+    if (settings.radio && settings.radioSource === 'spotify' && !settings.spotifyUri) {
+      settings.radioSource = 'builtin';
+    }
     RoadAudio.start();
-    RoadAudio.setRadio(settings.radio);
-    LR.save(LR.KEYS.settings, settings);
-    syncButtons();
+    applyRadio();
+    saveSettings();
+  }
+
+  function radioValue() {
+    if (!settings.radio) return 'off';
+    return settings.radioSource === 'spotify' ? 'spotify' : 'builtin';
   }
 
   function syncButtons() {
     ui.soundBtn.textContent = settings.muted ? 'Sound off' : 'Sound on';
-    ui.radioBtn.textContent = settings.radio ? 'Radio on' : 'Radio off';
+    const src = settings.radioSource === 'spotify' && settings.spotifyUri ? 'Spotify' : 'Radio';
+    ui.radioBtn.textContent = settings.radio ? `${src} on` : 'Radio off';
+    // reflect state in the settings panel
+    document.querySelectorAll('input[name="engine"]').forEach((el) => (el.checked = el.value === settings.engine));
+    document.querySelectorAll('input[name="radio"]').forEach((el) => (el.checked = el.value === radioValue()));
+    ui.engineVol.value = settings.engineVol;
+    ui.radioVol.value = settings.radioVol;
+    ui.soundAll.checked = !settings.muted;
+    const spotifyChosen = radioValue() === 'spotify' || (settings.radioSource === 'spotify' && !settings.spotifyUri && pendingSpotify);
+    ui.spotifyBox.classList.toggle('show', spotifyChosen);
+    ui.radioVolRow.style.display = radioValue() === 'builtin' ? '' : 'none';
+    if (settings.spotifyUri && !ui.spotifyLink.value) ui.spotifyLink.value = uriToLink(settings.spotifyUri);
   }
+
+  let pendingSpotify = false;
+  const uriToLink = (uri) => { const [, type, id] = uri.split(':'); return `https://open.spotify.com/${type}/${id}`; };
+
+  function openSettings() {
+    state.paused = true;
+    input.go = input.brake = false;
+    begin();
+    syncButtons();
+    ui.settings.classList.add('open');
+    ui.settings.setAttribute('aria-hidden', 'false');
+  }
+
+  function closeSettings() {
+    state.paused = false;
+    ui.settings.classList.remove('open');
+    ui.settings.setAttribute('aria-hidden', 'true');
+    if (document.activeElement) document.activeElement.blur();
+  }
+
+  const settingsOpen = () => ui.settings.classList.contains('open');
+
+  document.querySelectorAll('input[name="engine"]').forEach((el) => el.addEventListener('change', () => {
+    settings.engine = el.value;
+    RoadAudio.start();
+    RoadAudio.setEngine(settings.engine);
+    RoadAudio.preview();
+    saveSettings();
+  }));
+
+  document.querySelectorAll('input[name="radio"]').forEach((el) => el.addEventListener('change', () => {
+    ui.spotifyError.textContent = '';
+    if (el.value === 'off') {
+      settings.radio = false;
+      pendingSpotify = false;
+    } else if (el.value === 'builtin') {
+      settings.radio = true;
+      settings.radioSource = 'builtin';
+      pendingSpotify = false;
+    } else {
+      settings.radioSource = 'spotify';
+      if (settings.spotifyUri) settings.radio = true;
+      else { pendingSpotify = true; settings.radio = false; setTimeout(() => ui.spotifyLink.focus(), 50); }
+    }
+    RoadAudio.start();
+    applyRadio();
+    saveSettings();
+  }));
+
+  function loadSpotifyLink() {
+    const uri = SpotifyRadio.parse(ui.spotifyLink.value);
+    if (!uri) {
+      ui.spotifyError.textContent = 'That doesn’t look like a Spotify link. It should start with https://open.spotify.com/';
+      return;
+    }
+    ui.spotifyError.textContent = '';
+    settings.spotifyUri = uri;
+    settings.radioSource = 'spotify';
+    settings.radio = true;
+    pendingSpotify = false;
+    RoadAudio.start();
+    applyRadio();
+    saveSettings();
+    toast('Loading your Spotify into the radio…');
+  }
+
+  ui.spotifyLoad.addEventListener('click', loadSpotifyLink);
+  ui.spotifyLink.addEventListener('keydown', (e) => { if (e.key === 'Enter') loadSpotifyLink(); });
+  ui.engineVol.addEventListener('input', () => { settings.engineVol = parseFloat(ui.engineVol.value); RoadAudio.setEngineVolume(settings.engineVol); saveSettings(); });
+  ui.engineVol.addEventListener('change', () => RoadAudio.preview());
+  ui.radioVol.addEventListener('input', () => { settings.radioVol = parseFloat(ui.radioVol.value); RoadAudio.setRadioVolume(settings.radioVol); saveSettings(); });
+  ui.soundAll.addEventListener('change', () => { settings.muted = !ui.soundAll.checked; RoadAudio.start(); RoadAudio.setMuted(settings.muted); saveSettings(); syncButtons(); });
+  ui.settingsBtn.addEventListener('click', (e) => { e.currentTarget.blur(); openSettings(); });
+  ui.closeSettings.addEventListener('click', closeSettings);
+  ui.settings.addEventListener('pointerdown', (e) => { if (e.target === ui.settings) closeSettings(); });
+  ui.dockHide.addEventListener('click', () => {
+    const tucked = ui.dock.classList.toggle('tucked');
+    ui.dockHide.textContent = tucked ? 'Show' : 'Hide';
+  });
+  SpotifyRadio.onPlaybackChange(() => syncButtons());
 
   function tow() {
     if (state.fuel > 0 || state.v > 0.5) return;
@@ -1162,6 +1296,8 @@
 
   addEventListener('keydown', (e) => {
     if (e.metaKey || e.ctrlKey || e.altKey) return;
+    if (settingsOpen()) { if (e.code === 'Escape') closeSettings(); return; }
+    if (e.code === 'Escape' || e.code === 'KeyO') { e.preventDefault(); openSettings(); return; }
     if (!state.started) { begin(); if (!GO.includes(e.code)) return; }
     if (GO.includes(e.code)) { input.go = true; e.preventDefault(); }
     else if (BRAKE.includes(e.code)) { input.brake = true; e.preventDefault(); }
@@ -1189,6 +1325,7 @@
   canvas.addEventListener('pointerdown', begin);
   ui.soundBtn.addEventListener('click', (e) => { e.currentTarget.blur(); toggleSound(); });
   ui.radioBtn.addEventListener('click', (e) => { e.currentTarget.blur(); toggleRadio(); });
+  ui.radioBtn.addEventListener('contextmenu', (e) => { e.preventDefault(); openSettings(); });
   ui.albumLink.addEventListener('click', () => persist(true));
 
   document.querySelectorAll('#touch button').forEach((b) => {

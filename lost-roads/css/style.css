@@ -398,3 +398,236 @@ body.album {
   .album-head { flex-direction: column; align-items: flex-start; }
   .cards { grid-template-columns: 1fr; }
 }
+
+/* ------------------------------------------------------------------ */
+/* Settings                                                            */
+/* ------------------------------------------------------------------ */
+
+.hud-link {
+  pointer-events: none;
+  margin-top: 10px;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--light-soft);
+  background: none;
+  border: 0;
+  border-bottom: 1px solid transparent;
+  padding: 0 0 2px;
+  cursor: pointer;
+}
+
+body.driving .hud-link { pointer-events: auto; }
+
+.hud-link:hover { color: var(--light); border-bottom-color: currentColor; }
+
+#settings {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  justify-content: flex-end;
+  background: rgba(12, 14, 18, 0.35);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.35s ease;
+}
+
+#settings.open { opacity: 1; pointer-events: auto; }
+
+#settings .sheet {
+  width: min(460px, 100%);
+  height: 100%;
+  overflow-y: auto;
+  background: var(--paper);
+  color: var(--ink);
+  padding: 40px 36px 60px;
+  transform: translateX(24px);
+  transition: transform 0.35s ease;
+  user-select: text;
+  -webkit-user-select: text;
+  touch-action: pan-y;
+}
+
+#settings.open .sheet { transform: none; }
+
+.sheet-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 16px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid rgba(42, 40, 36, 0.25);
+}
+
+.sheet .kicker { color: var(--ink-soft); }
+
+.sheet h2 {
+  font-weight: 400;
+  font-size: 44px;
+  line-height: 1;
+  margin: 4px 0 0;
+}
+
+.sheet section {
+  padding: 26px 0 8px;
+  border-bottom: 1px solid rgba(42, 40, 36, 0.14);
+}
+
+.sheet section:last-child { border-bottom: 0; }
+
+.sheet h3 {
+  font-family: var(--mono);
+  font-weight: 500;
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  margin: 0 0 12px;
+}
+
+.sheet .meta { color: var(--ink-soft); }
+
+.sheet button.link {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink);
+  background: none;
+  border: 0;
+  border-bottom: 1px solid rgba(42, 40, 36, 0.35);
+  padding: 0 0 2px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.sheet button.link:hover { border-bottom-color: var(--ink); }
+
+.choices { display: flex; flex-direction: column; }
+
+.choices label,
+.check {
+  display: grid;
+  grid-template-columns: 22px 1fr;
+  column-gap: 8px;
+  padding: 9px 0;
+  cursor: pointer;
+}
+
+.choices input,
+.check input {
+  grid-row: span 2;
+  margin: 6px 0 0;
+  accent-color: #7a3e30;
+  width: 15px;
+  height: 15px;
+}
+
+.choices .name,
+.check .name { font-size: 20px; line-height: 1.2; }
+
+.choices .desc,
+.check .desc { font-size: 15px; color: var(--ink-soft); line-height: 1.35; }
+
+.choices label:has(input:checked) .name { font-style: italic; }
+
+.slider {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 14px 0 12px;
+}
+
+.slider input { flex: 0 0 55%; accent-color: #7a3e30; }
+
+#spotifyBox { display: none; padding: 6px 0 4px 30px; }
+#spotifyBox.show { display: block; }
+
+.field { display: block; }
+
+.field-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 14px;
+  margin-top: 6px;
+}
+
+.field input {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--ink);
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid rgba(42, 40, 36, 0.4);
+  padding: 6px 0;
+  outline: none;
+}
+
+.field input:focus { border-bottom-color: var(--ink); }
+
+.note {
+  font-size: 15px;
+  line-height: 1.45;
+  color: var(--ink-soft);
+  margin: 12px 0 0;
+}
+
+.note.error { color: #8e3a2a; font-style: italic; min-height: 0; }
+.note.error:empty { display: none; }
+
+/* Spotify player that rides along in the corner */
+#spotifyDock {
+  position: fixed;
+  right: 32px;
+  bottom: 64px;
+  width: 320px;
+  z-index: 5;
+  display: none;
+  transition: transform 0.4s ease, opacity 0.4s ease;
+}
+
+body.driving #spotifyDock.show { display: block; }
+
+#spotifyDock.tucked { transform: translateY(calc(100% - 26px)); opacity: 0.85; }
+#spotifyDock.tucked #spotifyEmbed { visibility: hidden; }
+
+.dock-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+  text-shadow: 0 1px 10px rgba(0, 0, 0, 0.4);
+}
+
+.dock-btn {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--light-soft);
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+}
+
+.dock-btn:hover { color: var(--light); }
+
+#spotifyEmbed iframe { display: block; border: 0; border-radius: 12px; }
+
+@media (pointer: coarse) {
+  #spotifyDock {
+    left: 16px;
+    right: 16px;
+    width: auto;
+    top: 96px;
+    bottom: auto;
+  }
+  #spotifyDock.tucked { transform: none; }
+  #settings .sheet { padding: 28px 22px 48px; }
+}

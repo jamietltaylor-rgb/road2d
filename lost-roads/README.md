@@ -12,7 +12,8 @@ album.html      the postcard album
 favicon.svg     tab icon
 css/style.css   all the styling
 js/shared.js    saving and loading (uses the browser's local storage)
-js/audio.js     engine, road, rain and radio sounds
+js/audio.js     engine sounds, road, rain and the car radio
+js/spotify.js   Spotify player for the radio
 js/game.js      the game itself
 js/album.js     the album page
 ```
@@ -25,11 +26,30 @@ js/album.js     the album page
 | ↓ / S | Brake |
 | C | Cruise control (holds your current speed) |
 | P or Space | Take a postcard |
-| R | Radio on/off |
+| R | Radio on/off (car radio or your Spotify) |
 | M | Sound on/off |
+| Esc or O | Settings |
 | T | Call a tow if you run out of fuel |
 
 On phones and tablets, on-screen buttons appear instead.
+
+## Settings
+
+Press **Esc**, or click **Settings** under the odometer, to pull over and open the settings. The game pauses while they're open.
+
+- **Engine sound:** old petrol, farm diesel, two-stroke, electric, or no engine. Picking one gives a short rev so you can hear it. There's also an engine volume slider.
+- **Radio:** off, the built-in car radio, or **your Spotify**.
+- **Sound:** switch all game sound on or off.
+
+### Spotify on the radio
+
+Choose *Your Spotify*, paste a link to a playlist, album or song (in Spotify: **Share → Copy link**), and press **Play**. It uses Spotify's own embedded player, which rides along in the corner of the screen. **R** starts and stops it like the normal radio.
+
+- No Spotify developer account or setup is needed, and it works for anyone who plays the game.
+- If the player is logged in to Spotify in the same browser, it usually plays full songs. Otherwise Spotify plays 30-second previews.
+- Some browsers block a website from starting music on its own. If nothing plays, press play on the Spotify player once.
+
+Full Spotify login (to browse your library inside the game) isn't included. Spotify currently limits that kind of app to the developer plus five people they add by hand, and the developer needs Premium. So it wouldn't work for other players.
 
 ## Put it on GitHub
 

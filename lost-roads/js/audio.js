@@ -1,11 +1,25 @@
 // Everything you hear is generated in the browser: no audio files needed.
 window.RoadAudio = (() => {
   let ctx = null;
-  let master, engGain, engFilter, osc1, osc2, roadGain, rainGain, padBus, radioGain;
+  let master, engGain, engFilter, osc1, osc2, amGain, lfo, lfoDepth, roadGain, rainGain, padBus, radioGain;
   let muted = false;
   let radioOn = false;
+  let radioVol = 0.8;
+  let engineVol = 0.8;
+  let engineName = 'petrol';
+  let previewUntil = 0;
   let nextChord = 0;
   let chordIndex = 0;
+
+  // Each engine is a recipe for the same little synth: two oscillators, a filter
+  // and a "rattle" (a wobble in the volume that follows the revs).
+  const ENGINES = {
+    petrol:    { a: 'sawtooth', b: 'triangle', idle: 34, range: 62,  ratio: 0.5, cut: 180,  cutRange: 420,  q: 3,   level: 0.035, levelRange: 0.05,  rattle: 0.15, rattleRatio: 0.5, idleLevel: 1 },
+    diesel:    { a: 'square',   b: 'sawtooth', idle: 24, range: 30,  ratio: 0.5, cut: 160,  cutRange: 260,  q: 1.6, level: 0.03,  levelRange: 0.035, rattle: 0.65, rattleRatio: 1,   idleLevel: 1 },
+    twostroke: { a: 'sawtooth', b: 'square',   idle: 68, range: 170, ratio: 1.01, cut: 700, cutRange: 1700, q: 5,   level: 0.016, levelRange: 0.03,  rattle: 0.35, rattleRatio: 0.5, idleLevel: 0.8 },
+    electric:  { a: 'sine',     b: 'triangle', idle: 140, range: 560, ratio: 1.5, cut: 1800, cutRange: 1500, q: 1,   level: 0.0,   levelRange: 0.03,  rattle: 0,    rattleRatio: 1,   idleLevel: 0 },
+    off:       null
+  };
 
   const midi = (n) => 440 * Math.pow(2, (n - 69) / 12);
   // A slow, slightly melancholy loop: Am9, Fmaj7, Cmaj7, G6
@@ -49,6 +63,17 @@ window.RoadAudio = (() => {
     return g;
   }
 
+  function applyEngineShape() {
+    if (!ctx) return;
+    const e = ENGINES[engineName];
+    if (!e) return;
+    osc1.type = e.a;
+    osc2.type = e.b;
+    engFilter.Q.setTargetAtTime(e.q, ctx.currentTime, 0.05);
+    amGain.gain.setTargetAtTime(1 - e.rattle * 0.5, ctx.currentTime, 0.05);
+    lfoDepth.gain.setTargetAtTime(e.rattle * 0.5, ctx.currentTime, 0.05);
+  }
+
   function start() {
     if (ctx) {
       if (ctx.state === 'suspended') ctx.resume();
@@ -62,27 +87,31 @@ window.RoadAudio = (() => {
     master.gain.value = muted ? 0 : 0.9;
     master.connect(ctx.destination);
 
-    // Engine: two detuned oscillators through a low-pass filter
+    // Engine: two oscillators -> filter -> rattle -> level
     osc1 = ctx.createOscillator();
-    osc1.type = 'sawtooth';
     osc2 = ctx.createOscillator();
-    osc2.type = 'triangle';
     engFilter = ctx.createBiquadFilter();
     engFilter.type = 'lowpass';
     engFilter.frequency.value = 260;
-    engFilter.Q.value = 3;
+    amGain = ctx.createGain();
+    lfo = ctx.createOscillator();
+    lfo.type = 'sine';
+    lfoDepth = ctx.createGain();
+    lfo.connect(lfoDepth).connect(amGain.gain);
     engGain = ctx.createGain();
     engGain.gain.value = 0;
     osc1.connect(engFilter);
     osc2.connect(engFilter);
-    engFilter.connect(engGain).connect(master);
+    engFilter.connect(amGain).connect(engGain).connect(master);
     osc1.start();
     osc2.start();
+    lfo.start();
+    applyEngineShape();
 
     roadGain = loopNoise('brown', 'lowpass', 420, 0.7);
     rainGain = loopNoise('white', 'highpass', 2200, 0.5);
 
-    // Radio: soft pads into a feedback delay so they smear into the fog
+    // Car radio: soft pads into a feedback delay so they smear into the fog
     padBus = ctx.createGain();
     const lp = ctx.createBiquadFilter();
     lp.type = 'lowpass';
@@ -134,13 +163,27 @@ window.RoadAudio = (() => {
   function update(speedNorm, throttle, rain, running) {
     if (!ctx) return;
     const t = ctx.currentTime;
-    const on = running ? 1 : 0;
-    const f = 34 + speedNorm * 62 + throttle * 9;
-    osc1.frequency.setTargetAtTime(f, t, 0.15);
-    osc2.frequency.setTargetAtTime(f * 0.5, t, 0.15);
-    engFilter.frequency.setTargetAtTime(180 + speedNorm * 420 + throttle * 260, t, 0.2);
-    engGain.gain.setTargetAtTime(on * (0.035 + speedNorm * 0.05 + throttle * 0.025), t, 0.25);
-    roadGain.gain.setTargetAtTime(on * speedNorm * 0.11, t, 0.3);
+    if (t < previewUntil) {
+      // a short rev so you can hear the engine you just picked
+      const k = 1 - (previewUntil - t) / 1.6;
+      running = true;
+      throttle = k < 0.6 ? 1 : 0;
+      speedNorm = Math.max(speedNorm, Math.sin(Math.min(k, 1) * Math.PI) * 0.55);
+    }
+    const e = ENGINES[engineName];
+    if (e) {
+      const on = running ? 1 : 0;
+      const f = e.idle + speedNorm * e.range + throttle * e.range * 0.12;
+      osc1.frequency.setTargetAtTime(f, t, 0.15);
+      osc2.frequency.setTargetAtTime(f * e.ratio, t, 0.15);
+      lfo.frequency.setTargetAtTime(Math.max(1, f * e.rattleRatio), t, 0.15);
+      engFilter.frequency.setTargetAtTime(e.cut + speedNorm * e.cutRange + throttle * e.cutRange * 0.5, t, 0.2);
+      const level = e.level * e.idleLevel + speedNorm * e.levelRange + throttle * 0.02;
+      engGain.gain.setTargetAtTime(on * level * engineVol * 1.25, t, 0.25);
+    } else {
+      engGain.gain.setTargetAtTime(0, t, 0.2);
+    }
+    roadGain.gain.setTargetAtTime((running ? 1 : 0) * speedNorm * 0.11, t, 0.3);
     rainGain.gain.setTargetAtTime(rain * 0.07, t, 0.8);
     scheduleRadio();
   }
@@ -171,8 +214,26 @@ window.RoadAudio = (() => {
   function setRadio(on) {
     radioOn = on;
     if (!ctx) return;
-    radioGain.gain.setTargetAtTime(on ? 1 : 0, ctx.currentTime, 0.8);
+    radioGain.gain.setTargetAtTime(on ? radioVol * 1.25 : 0, ctx.currentTime, 0.8);
     if (on) nextChord = Math.max(nextChord, ctx.currentTime + 0.1);
+  }
+
+  function setRadioVolume(v) {
+    radioVol = v;
+    if (ctx && radioOn) radioGain.gain.setTargetAtTime(v * 1.25, ctx.currentTime, 0.2);
+  }
+
+  function setEngine(name) {
+    if (!(name in ENGINES)) name = 'petrol';
+    engineName = name;
+    applyEngineShape();
+  }
+
+  function setEngineVolume(v) { engineVol = v; }
+
+  function preview() {
+    if (!ctx || !ENGINES[engineName]) return;
+    previewUntil = ctx.currentTime + 1.6;
   }
 
   return {
@@ -181,6 +242,10 @@ window.RoadAudio = (() => {
     shutter,
     setMuted,
     setRadio,
+    setRadioVolume,
+    setEngine,
+    setEngineVolume,
+    preview,
     get muted() { return muted; },
     get radioOn() { return radioOn; }
   };

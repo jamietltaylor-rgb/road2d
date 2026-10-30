@@ -1,6 +1,6 @@
 # Lost Roads
 
-A slow driving game for the browser. You drive an old estate car through misty hills, moors, coast, mountain passes and autumn woods. The day turns to night, the weather changes, you stop for fuel, and you take photos that go into a postcard album. Players can sign in so their progress follows them between devices, and the car has a touchscreen for playing your own Spotify.
+A slow driving game for the browser. You drive an old estate car through ten foggy landscapes while the day turns to night and the weather changes. Pick up hitchhikers to earn money, spend it on jerry cans, and keep an eye on the fuel. Fuel stations are far apart and some have closed, so if you run dry with nothing in the boot, the journey's over. Photos you take go into a postcard album. Players can sign in so their progress follows them between devices, and the car has a touchscreen for playing your own Spotify.
 
 The game is plain HTML, CSS and JavaScript. A small Cloudflare Worker (`worker.js`) handles accounts and cloud saves.
 
@@ -39,9 +39,26 @@ wrangler.jsonc         Cloudflare settings
 | M | | Sound on/off |
 | Esc or O | Settings (top right) | Settings (the game pauses) |
 | F | | Full screen |
-| T | | Call a tow if you run out of fuel |
+| E | Buy can | Buy a jerry can (when stopped at a fuel station) |
+| J | Use can | Pour a jerry can into the tank |
+| H | Horn | Honk (moves sheep along) |
 
 **Controllers** (Xbox, PlayStation and so on) work on a computer: right trigger drives, left trigger brakes, X/Square takes a photo, Y/Triangle sets cruise control, and Start opens the settings.
+
+## How the journey works
+
+- **Fuel:** a full tank lasts about 3.6 km. Fuel stations are unevenly spaced (roughly 1.5 to 4 km apart). Now and then one is **closed** ("SHUT" sign, boarded windows). The HUD shows how far it is to the next station.
+- **Hitchhikers** wait by the road holding a cardboard sign with where they're going. Stop next to one to pick them up (one at a time). They chat as you drive, and you get paid when you stop at their village. They pay more for longer rides and sometimes add a tip. Drive past their stop and they'll only pay half.
+- **Jerry cans** cost £20 at any open fuel station (up to 3). They're filled when you buy them, and refilled for free whenever you fill up at a station. If the tank runs dry, a full can is used automatically. You can also pour one in with J or Use can.
+- **Game over:** if you run out of fuel with no full jerry can, the journey ends. The screen shows your distance, best distance, hitchhikers carried and money earned. "Start a new journey" gives you a fresh road with new hitchhikers and events. Your postcards are kept.
+- **Things on the road:**
+  - Sheep wander onto the road. Stop and wait, or honk. Hitting them costs £10.
+  - Fallen trees block the road until a farmer clears them. Hitting one costs £15.
+  - Deer leap across, mostly at night.
+  - You'll sometimes find a £5 or £10 note on the verge.
+  - At **viewpoints**, a gallery buys your postcard for £6.
+  - Thunderstorms bring lightning and thunder.
+- **Landscapes (10):** Pine Valley, Heather Moor, Salt Coast, High Pass, Rust Woods, Birch Wood, Old Orchard, Wind Farm Ridge (with turning turbines), Dune Road and Peat Bog.
 
 ## Phones and computers
 
@@ -119,5 +136,7 @@ Near the top of `js/game.js`:
 - `FUEL_RANGE`, `STATION_EVERY`: how far a tank lasts and how far apart fuel stops are
 - `BIOMES`: colours and tree types for each landscape
 - `CAR`: the car's colours (`body` is the paint)
+
+Money and cans are set near the top of the journey section in `js/game.js`: `CAN_PRICE`, `CAN_FUEL` (how much a can puts in) and `MAX_CANS`. Hitchhiker names and what they say are in `NAMES` and `CHAT`, so add your own.
 
 For testing, add `?t=0.8` to the address to jump to dusk, or `?km=5` to jump 5 km down the road.

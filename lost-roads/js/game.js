@@ -71,7 +71,12 @@
     { name: 'Heather Moor', far: '#8b8892', mid: '#72646c', back: '#5b4c50', front: '#463b39', ground: '#332c28', verge: '#56463f', relief: [0.6, 0.7, 0.5], density: [0.07, 0.22], tree: 'shrub' },
     { name: 'Salt Coast', far: '#8e9a9e', mid: '#62787d', back: '#5b6458', front: '#495045', ground: '#3d3d36', verge: '#67654f', relief: [0.45, 0.03, 0.45], density: [0.05, 0.14], tree: 'broad' },
     { name: 'High Pass', far: '#aab1b8', mid: '#86909a', back: '#57656b', front: '#3c494e', ground: '#a3a9ac', verge: '#c8cdcf', relief: [1.7, 1.3, 1.1], density: [0.3, 0.38], tree: 'snowpine' },
-    { name: 'Rust Woods', far: '#8c8a80', mid: '#6f6853', back: '#6d5537', front: '#553f2a', ground: '#30271e', verge: '#5d452f', relief: [0.8, 0.8, 0.7], density: [0.55, 0.7], tree: 'broad' }
+    { name: 'Rust Woods', far: '#8c8a80', mid: '#6f6853', back: '#6d5537', front: '#553f2a', ground: '#30271e', verge: '#5d452f', relief: [0.8, 0.8, 0.7], density: [0.55, 0.7], tree: 'broad' },
+    { name: 'Birch Wood', far: '#8a9096', mid: '#6c766f', back: '#727b70', front: '#56604f', ground: '#2c3127', verge: '#4b5440', relief: [0.9, 0.8, 0.8], density: [0.55, 0.62], tree: 'birch' },
+    { name: 'Old Orchard', far: '#8d8f88', mid: '#71745f', back: '#5f6640', front: '#4c5434', ground: '#333824', verge: '#5b6340', relief: [0.6, 0.5, 0.35], density: [0.85, 0.75], tree: 'orchard' },
+    { name: 'Wind Farm Ridge', far: '#97a0a6', mid: '#7b878a', back: '#6c7778', front: '#4e5753', ground: '#2e342f', verge: '#4d5743', relief: [1.25, 1.0, 0.6], density: [0.22, 0.16], tree: 'shrub', treeBack: 'turbine' },
+    { name: 'Dune Road', far: '#a39e93', mid: '#8b8576', back: '#ad9f80', front: '#978a6b', ground: '#6b604c', verge: '#a3956f', relief: [0.4, 0.3, 1.1], density: [0.3, 0.5], tree: 'marram' },
+    { name: 'Peat Bog', far: '#7f8584', mid: '#5f6862', back: '#4c5147', front: '#3a3e33', ground: '#24251e', verge: '#44463a', relief: [0.35, 0.25, 0.18], density: [0.35, 0.55], tree: 'reed' }
   ];
   const COLOUR_KEYS = ['far', 'mid', 'back', 'front', 'ground', 'verge'];
   BIOMES.forEach((b) => COLOUR_KEYS.forEach((k) => (b[k] = hex(b[k]))));
@@ -197,7 +202,19 @@
     started: false,
     time: 0,
     lastPlace: -1,
-    paused: false
+    paused: false,
+    seed: saved && saved.seed ? saved.seed : (Math.random() * 1e6) | 0,
+    money: saved && typeof saved.money === 'number' ? saved.money : 5,
+    cans: saved && Array.isArray(saved.cans) ? saved.cans : [],
+    passenger: saved && saved.passenger ? saved.passenger : null,
+    done: new Set(saved && saved.done ? saved.done : []),
+    carried: saved ? saved.carried || 0 : 0,
+    earned: saved ? saved.earned || 0 : 0,
+    over: false,
+    chatT: 25,
+    flash: 0,
+    emptyT: 0,
+    dark: 0
   };
   const input = { go: false, brake: false };
 
@@ -358,6 +375,40 @@
         ctx.moveTo(x + bx * h + br * h, y - by * h);
         ctx.arc(x + bx * h, y - by * h, br * h, 0, Math.PI * 2);
       }
+    } else if (type === 'birch') {
+      // the pale trunk is drawn separately; this is the airy crown
+      const blobs = [[0, 0.82, 0.13], [-0.09, 0.7, 0.1], [0.1, 0.66, 0.11], [0.02, 0.56, 0.09]];
+      for (const [bx, by, br] of blobs) {
+        ctx.moveTo(x + bx * h + br * h, y - by * h);
+        ctx.ellipse(x + bx * h, y - by * h, br * h, br * h * 1.3, 0, 0, Math.PI * 2);
+      }
+    } else if (type === 'orchard') {
+      ctx.rect(x - h * 0.03, y - h * 0.32, h * 0.06, h * 0.34);
+      ctx.moveTo(x + h * 0.26, y - h * 0.44);
+      ctx.ellipse(x, y - h * 0.44, h * 0.26, h * 0.2, 0, 0, Math.PI * 2);
+    } else if (type === 'turbine') {
+      ctx.moveTo(x - h * 0.018, y);
+      ctx.lineTo(x - h * 0.008, y - h);
+      ctx.lineTo(x + h * 0.008, y - h);
+      ctx.lineTo(x + h * 0.018, y);
+      ctx.closePath();
+      ctx.rect(x - h * 0.02, y - h * 1.015, h * 0.06, h * 0.03);
+    } else if (type === 'marram') {
+      for (let k = -3; k <= 3; k++) {
+        const lean = k * 0.09 + Math.sin(state.time * 1.3 + x * 0.05) * 0.05;
+        ctx.moveTo(x + k * h * 0.05 - h * 0.012, y);
+        ctx.lineTo(x + k * h * 0.05 + lean * h, y - h * (0.55 - Math.abs(k) * 0.07));
+        ctx.lineTo(x + k * h * 0.05 + h * 0.012, y);
+        ctx.closePath();
+      }
+    } else if (type === 'reed') {
+      for (let k = -2; k <= 2; k++) {
+        const top = y - h * (0.5 - Math.abs(k) * 0.06);
+        const sway = Math.sin(state.time * 1.1 + x * 0.03 + k) * h * 0.02;
+        ctx.rect(x + k * h * 0.06 + sway, top, h * 0.012, y - top);
+        ctx.moveTo(x + k * h * 0.06 + sway + h * 0.03, top + h * 0.06);
+        ctx.ellipse(x + k * h * 0.06 + sway + h * 0.006, top + h * 0.06, h * 0.022, h * 0.06, 0, 0, Math.PI * 2);
+      }
     } else {
       ctx.moveTo(x + h * 0.4, y);
       ctx.ellipse(x, y, h * 0.4, h * 0.16, 0, 0, Math.PI * 2);
@@ -377,35 +428,89 @@
     }
   }
 
-  function drawTreeLayer(L, pal, colour, snowColour, distM) {
+  function drawTreeLayer(L, pal, colour, extra, distM) {
     const shift = state.cam * L.p;
     const relief = pal.relief[2];
     fillRidge(L, state.cam, relief, colour, 6);
 
-    const i0 = Math.floor((shift - 80) / L.cell);
-    const i1 = Math.floor((shift + W + 80) / L.cell);
-    const snowy = [];
+    const i0 = Math.floor((shift - 120) / L.cell);
+    const i1 = Math.floor((shift + W + 120) / L.cell);
+    const snowy = [], birches = [], turbines = [], pools = [], grasses = [];
     ctx.beginPath();
     for (let i = i0; i <= i1; i++) {
       const sx = i * L.cell + (hash2(i, L.seed + 5) - 0.5) * L.cell * 0.8 - shift;
       const m = distM + (sx - carX) / PXM;
       const bio = biomeAt(m);
-      const dens = lerp(bio.a.density[L.d], bio.b.density[L.d], bio.t);
-      const clump = 0.55 + 0.75 * (noise(i * 0.09, L.seed + 9) * 0.5 + 0.5);
-      if (hash2(i, L.seed + 6) > dens * clump) continue;
-      const type = hash2(i, L.seed + 7) < bio.t ? bio.b.tree : bio.a.tree;
-      const h = lerp(L.size[0], L.size[1], hash2(i, L.seed + 8));
+      const B = hash2(i, L.seed + 7) < bio.t ? bio.b : bio.a;
+      let type = L.d === 0 && B.treeBack ? B.treeBack : B.tree;
       const y = ridge(L, sx + shift, relief) + 3;
+      // bog pools sit between the reeds
+      if (type === 'reed' && L.d === 1 && hash2(i, L.seed + 13) < 0.22) pools.push([sx, y + 4, 18 + hash2(i, L.seed + 14) * 26]);
+      if (type === 'turbine') {
+        // wind turbines stand well apart
+        if (i % 7 !== 0 || hash2(i, L.seed + 11) > 0.75) continue;
+        const h = L.size[1] * 3.1;
+        treePath(type, sx, y, h);
+        turbines.push([sx, y - h * 1.0, h * 0.42, hash2(i, 3) * 6.28]);
+        continue;
+      }
+      const dens = lerp(bio.a.density[L.d], bio.b.density[L.d], bio.t);
+      const clump = type === 'orchard' ? 1 : 0.55 + 0.75 * (noise(i * 0.09, L.seed + 9) * 0.5 + 0.5);
+      if (hash2(i, L.seed + 6) > dens * clump) continue;
+      let h = lerp(L.size[0], L.size[1], hash2(i, L.seed + 8));
+      if (type === 'orchard') h *= 0.75;
+      if (type === 'marram' || type === 'reed') h *= 0.55;
+      if (type === 'birch') h *= 1.1;
+      if (type === 'marram') { grasses.push([sx, y, h]); continue; }
       treePath(type, sx, y, h);
       if (type === 'snowpine') snowy.push([sx, y, h]);
+      if (type === 'birch') birches.push([sx, y, h]);
     }
     ctx.fillStyle = rgb(colour);
     ctx.fill();
+    if (grasses.length) {
+      ctx.beginPath();
+      grasses.forEach(([x, y, h]) => treePath('marram', x, y, h));
+      ctx.fillStyle = rgb(mix(colour, extra.grass, 0.6));
+      ctx.fill();
+    }
+    if (pools.length) {
+      ctx.beginPath();
+      pools.forEach(([x, y, w]) => { ctx.moveTo(x + w, y); ctx.ellipse(x, y, w, w * 0.12, 0, 0, Math.PI * 2); });
+      ctx.fillStyle = rgb(extra.water);
+      ctx.fill();
+    }
     if (snowy.length) {
       ctx.beginPath();
       snowy.forEach(([x, y, h]) => snowPath(x, y, h));
-      ctx.fillStyle = rgb(snowColour);
+      ctx.fillStyle = rgb(extra.snow);
       ctx.fill();
+    }
+    if (birches.length) {
+      ctx.beginPath();
+      birches.forEach(([x, y, h]) => ctx.rect(x - h * 0.016, y - h * 0.86, h * 0.032, h * 0.86));
+      ctx.fillStyle = rgb(extra.birch);
+      ctx.fill();
+      ctx.beginPath();
+      birches.forEach(([x, y, h]) => { for (let k = 1; k < 6; k++) ctx.rect(x - h * 0.016, y - h * (0.13 * k + 0.05), h * (0.012 + (k % 2) * 0.012), h * 0.012); });
+      ctx.fillStyle = rgb(colour);
+      ctx.fill();
+    }
+    if (turbines.length) {
+      ctx.strokeStyle = rgb(colour);
+      ctx.lineWidth = 1.6;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      turbines.forEach(([x, y, r, ph]) => {
+        const a0 = state.time * 0.9 + ph;
+        for (let k = 0; k < 3; k++) {
+          const a = a0 + (k * Math.PI * 2) / 3;
+          ctx.moveTo(x, y);
+          ctx.lineTo(x + Math.cos(a) * r, y + Math.sin(a) * r);
+        }
+      });
+      ctx.stroke();
+      ctx.lineCap = 'butt';
     }
   }
 
@@ -468,25 +573,46 @@
     ctx.textBaseline = 'alphabetic';
   }
 
-  function stationWorldX(n) { return (n * STATION_EVERY + STATION_OFFSET) * PXM; }
-
+  // Fuel stops are unevenly spaced, and now and then one is closed.
+  // The first few are always open and close together so a new journey can get going.
+  let stationList = [], stationSeed = null;
+  function ensureStations(m) {
+    if (stationSeed !== state.seed) { stationList = [{ m: STATION_OFFSET, closed: false }]; stationSeed = state.seed; }
+    while (stationList[stationList.length - 1].m < m + 6000) {
+      const n = stationList.length;
+      const prev = stationList[n - 1];
+      const r = hash2(n, 500 + state.seed * 7), r2 = hash2(n, 900 + state.seed * 7);
+      const gap = n < 4 ? 1500 + r * 900 : 1600 + r * 2300;
+      const closed = n >= 4 && r2 < 0.17 && !prev.closed;
+      stationList.push({ m: prev.m + gap, closed });
+    }
+  }
+  function stationIndexNear(m) {
+    ensureStations(m);
+    let best = 0;
+    for (let i = 0; i < stationList.length; i++) {
+      if (Math.abs(stationList[i].m - m) < Math.abs(stationList[best].m - m)) best = i;
+      if (stationList[i].m > m + 5000) break;
+    }
+    return best;
+  }
+  function stationWorldX(n) { ensureStations(0); while (stationList.length <= n) ensureStations(stationList[stationList.length - 1].m + 1); return stationList[n].m * PXM; }
+  function nearestStation(wx) { return stationWorldX(stationIndexNear(wx / PXM)); }
+  function nearestStationInfo(wx) { const i = stationIndexNear(wx / PXM); return { wx: stationList[i].m * PXM, closed: stationList[i].closed }; }
   function nextStationAfter(wx) {
-    const n = Math.max(0, Math.ceil((wx / PXM - STATION_OFFSET) / STATION_EVERY));
-    return stationWorldX(n);
+    const m = wx / PXM;
+    ensureStations(m);
+    const st = stationList.find((x) => x.m >= m);
+    return st.m * PXM;
   }
 
-  function nearestStation(wx) {
-    const n = Math.max(0, Math.round((wx / PXM - STATION_OFFSET) / STATION_EVERY));
-    return stationWorldX(n);
-  }
-
-  function drawStations(dark, bodyColour, roofColour, lamp) {
-    const n0 = Math.max(0, Math.floor((state.cam / PXM - STATION_OFFSET) / STATION_EVERY) - 1);
-    const n1 = n0 + 3;
-    for (let n = n0; n <= n1; n++) {
-      const wx = stationWorldX(n);
+  function drawStations(dark, bodyColour, roofColour, lamp0) {
+    ensureStations(state.cam / PXM + W / PXM);
+    for (const st of stationList) {
+      const wx = st.m * PXM;
       const sx = wx - state.cam;
       if (sx < -300 || sx > W + 300) continue;
+      const lamp = st.closed ? mix(roofColour, bodyColour, 0.3) : lamp0;
       const base = roadY(wx) - 4;
       // shop
       ctx.fillStyle = rgb(bodyColour);
@@ -518,10 +644,18 @@
       ctx.fillStyle = rgb(roofColour);
       ctx.font = '500 11px "IBM Plex Mono", monospace';
       ctx.textAlign = 'center';
-      ctx.fillText('FUEL', sx - 110, base - 97);
+      ctx.fillText(st.closed ? 'SHUT' : 'FUEL', sx - 110, base - 97);
       ctx.textAlign = 'left';
+      if (st.closed) {
+        // boarded windows
+        ctx.strokeStyle = rgb(roofColour);
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        for (const wxo of [50, 104]) { ctx.moveTo(sx + wxo, base - 42); ctx.lineTo(sx + wxo + 26, base - 22); ctx.moveTo(sx + wxo + 26, base - 42); ctx.lineTo(sx + wxo, base - 22); }
+        ctx.stroke();
+      }
 
-      if (dark > 0.2) {
+      if (dark > 0.2 && !st.closed) {
         ctx.globalCompositeOperation = 'lighter';
         for (const [gx, gy, r] of [[sx - 110, base - 101, 70], [sx + 90, base - 32, 110], [sx - 22, base - 70, 60]]) {
           const g = ctx.createRadialGradient(gx, gy, 0, gx, gy, r);
@@ -544,6 +678,351 @@
       const wx = i * sp;
       const sx = wx - state.cam;
       ctx.fillRect(sx, roadY(wx) - 13, 2.5, 12);
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // The journey: hitchhikers, things on the road, money and jerry cans
+  // ---------------------------------------------------------------------------
+  const CAN_PRICE = 20, CAN_FUEL = 35, MAX_CANS = 3;
+  const NAMES = ['Margaret', 'Tom', 'Priya', 'Ewan', 'Aled', 'Ruth', 'Kwame', 'Isla', 'Dougie', 'Mei', 'Frank', 'Niamh', 'Owen', 'Sadie', 'Bill', 'Ada', 'Jonah', 'Elsie', 'Rafi', 'Bryony'];
+  const COATS = ['#7c4b3a', '#3f5a6b', '#8a7a3c', '#4d6146', '#6b4a68', '#2f3b46', '#9a6b3f', '#5a5f66', '#8b3a2f'];
+  const CHAT = [
+    'I used to walk this road to school. It felt longer then.',
+    'My nan swore there was a ghost at the crossroads back there.',
+    'You get used to the fog. You start to miss it when it lifts.',
+    'I’m going to see my brother. We haven’t spoken in a while.',
+    'There used to be a tea room along here. Best scones in the county.',
+    'Is that your luggage on the roof? Going somewhere nice?',
+    'I’ve hitched this road for thirty years. You’re the first to stop today.',
+    'Don’t mind me. I’ll just watch the hills.',
+    'My dog would have loved this car. He loved a window.',
+    'They say the old bridge is haunted. I say it’s just badly lit.',
+    'I came out to photograph herons. Didn’t see a single one.',
+    'Rain’s coming. You can smell it.',
+    'I’m a postman, believe it or not. Day off.',
+    'Funny how a road can feel like it’s remembering you.',
+    'Keep an eye out for sheep round here. They own the place.',
+    'If you see a fuel stop, take it. They’re further apart than you’d think.',
+    'I left my bike at a pub three villages back. Long story.',
+    'Do you ever just drive to see where it goes? Me neither. Until today.'
+  ];
+  const THANKS = ['This’ll do lovely.', 'Right here’s perfect, thank you.', 'You’re a star.', 'I’ll hop out here. Safe travels.', 'Thanks for the company.'];
+
+  let spots = [], spotSeed = null;
+  const ev = {};
+  function ensureSpots(uptoM) {
+    if (spotSeed !== state.seed) { spots = []; spotSeed = state.seed; }
+    let m = spots.length ? spots[spots.length - 1].m : 260;
+    let k = spots.length ? spots[spots.length - 1].id + 1 : 0;
+    while (m < uptoM) {
+      const r = (i) => hash2(k, state.seed * 31 + i * 977);
+      m += 450 + r(1) * 750;
+      const near = Math.abs(stationWorldX(stationIndexNear(m)) / PXM - m) < 140 || Math.abs((Math.round(m / PLACE_EVERY) * PLACE_EVERY) - m) < 60;
+      if (!near) {
+        const p = r(2);
+        let kind = p < 0.4 ? 'hitch' : p < 0.52 ? 'sheep' : p < 0.62 ? 'tree' : p < 0.74 ? 'cash' : p < 0.86 ? 'view' : 'deer';
+        if (spots.length === 0) kind = 'hitch';
+        spots.push({ id: k, m, kind, r: r(3), r2: r(4), r3: r(5) });
+      }
+      k++;
+    }
+  }
+  const hitchInfo = (sp) => ({
+    name: NAMES[Math.floor(sp.r * NAMES.length)],
+    coat: COATS[Math.floor(sp.r2 * COATS.length)],
+    dest: Math.floor(sp.m / PLACE_EVERY) + 1 + Math.floor(sp.r3 * 3)
+  });
+  const fareFor = (fromM, dest) => Math.round(4 + ((dest * PLACE_EVERY - fromM) / 1000) * 3);
+
+  let captionTimer = 0;
+  function caption(text) {
+    ui.caption.textContent = text;
+    ui.caption.classList.add('show');
+    clearTimeout(captionTimer);
+    captionTimer = setTimeout(() => ui.caption.classList.remove('show'), 7000);
+  }
+  function earn(amount, msg) {
+    state.money += amount;
+    state.earned += amount;
+    RoadAudio.chime();
+    toast(msg);
+  }
+  function charge(amount, msg) {
+    state.money = Math.max(0, state.money - amount);
+    toast(msg);
+  }
+
+  function dropOff(missed) {
+    const p = state.passenger;
+    const fare = fareFor(p.from, p.dest);
+    const tip = missed ? 0 : Math.floor(Math.random() * 5);
+    const pay = missed ? Math.ceil(fare / 2) : fare + tip;
+    state.passenger = null;
+    state.carried++;
+    if (missed) caption(`${p.name}: Ah, that was my stop back there. Never mind, I’ll walk. Here’s something for the petrol.`);
+    else caption(`${p.name}: ${THANKS[Math.floor(Math.random() * THANKS.length)]} Here’s £${pay}${tip ? ', and a bit extra' : ''}.`);
+    earn(pay, `+£${pay} from ${p.name}`);
+  }
+
+  function atOpenStation(carW) {
+    const st = nearestStationInfo(carW);
+    return !st.closed && Math.abs(st.wx - carW) < 90;
+  }
+  function buyCan() {
+    const carW = state.cam + carX;
+    if (!atOpenStation(carW) || state.v > 1.5) { toast('You can buy jerry cans when you’re stopped at a fuel station.'); return; }
+    if (state.cans.length >= MAX_CANS) { toast(`The boot only fits ${MAX_CANS} jerry cans.`); return; }
+    if (state.money < CAN_PRICE) { toast(`A jerry can costs £${CAN_PRICE}. Pick up some hitchhikers to earn more.`); return; }
+    state.money -= CAN_PRICE;
+    state.cans.push(true);
+    RoadAudio.chime();
+    toast(`Bought a jerry can and filled it (−£${CAN_PRICE})`);
+  }
+  function useCan(auto) {
+    const i = state.cans.indexOf(true);
+    if (i < 0) { if (!auto) toast(state.cans.length ? 'Your jerry cans are empty. Fill them at a fuel station.' : 'You don’t have a jerry can. Buy one at a fuel station.'); return false; }
+    if (state.fuel > 97 && !auto) { toast('Your tank is already full.'); return false; }
+    state.cans[i] = false;
+    state.fuel = Math.min(100, state.fuel + CAN_FUEL);
+    RoadAudio.glug();
+    toast(auto ? 'The engine coughed, so you emptied a jerry can into the tank.' : 'You poured a jerry can into the tank.');
+    return true;
+  }
+  function honk() {
+    RoadAudio.horn();
+    const carW = state.cam + carX;
+    for (const sp of spots) {
+      if (sp.kind === 'sheep' && sp.m * PXM > carW && sp.m * PXM - carW < 600) (ev[sp.id] || (ev[sp.id] = { wait: 0, t: -1 })).honked = true;
+    }
+  }
+
+  function updateJourney(dt, carW) {
+    const carM = carW / PXM;
+    ensureSpots(carM + 1500);
+    const front = carW + 62;
+    for (const sp of spots) {
+      if (sp.m < carM - 200) continue;
+      if (sp.m > carM + 300) break;
+      const x = sp.m * PXM;
+      const e = ev[sp.id] || (ev[sp.id] = { wait: 0, t: -1 });
+      if (state.done.has(sp.id)) continue;
+      if (sp.kind === 'hitch') {
+        if (!state.passenger && Math.abs(x - carW) < 80 && state.v < 1.5) {
+          const h = hitchInfo(sp);
+          state.passenger = { name: h.name, dest: h.dest, from: sp.m, coat: h.coat };
+          state.done.add(sp.id);
+          state.chatT = 30 + Math.random() * 20;
+          caption(`${h.name}: Thanks for stopping. Could you take me as far as ${placeName(h.dest)}? I’ll pay you £${fareFor(sp.m, h.dest)}.`);
+        }
+      } else if (sp.kind === 'sheep' || sp.kind === 'tree') {
+        const start = x - (sp.kind === 'sheep' ? 80 : 40);
+        if (front > start && front < start + 200) {
+          if (state.v > 3) {
+            RoadAudio.bump();
+            if (sp.kind === 'sheep') charge(10, 'You clipped a sheep. The farmer wants £10 for the vet.');
+            else charge(15, 'You hit the fallen tree. Fixing the bumper costs £15.');
+          }
+          state.v = 0;
+          state.cruise = false;
+          state.cam = start - 62 - carX;
+        }
+        const gap = start - (state.cam + carX + 62);
+        if (gap < 340 && gap > -20 && state.v < 0.5) e.wait += dt;
+        if (e.wait > (sp.kind === 'sheep' ? 3 : 4.5) || (sp.kind === 'sheep' && e.honked && gap < 600)) {
+          e.t = state.time;
+          state.done.add(sp.id);
+          toast(sp.kind === 'sheep' ? 'The sheep amble off the road.' : 'A farmer drags the tree clear with his tractor.');
+        }
+      } else if (sp.kind === 'cash') {
+        if (carW > x) {
+          state.done.add(sp.id);
+          const amt = sp.r < 0.7 ? 5 : 10;
+          earn(amt, `You spotted a £${amt} note on the verge.`);
+        }
+      } else if (sp.kind === 'deer') {
+        if (e.t < 0 && x > carW && x - carW < 420) {
+          state.done.add(sp.id);
+          if (state.dark > 0.4 || sp.r < 0.3) {
+            e.t = state.time;
+            if (state.v > 16) { state.v *= 0.6; toast('A deer leaps across the road. You brake on instinct.'); }
+          }
+        }
+      }
+    }
+
+    const p = state.passenger;
+    if (p) {
+      state.chatT -= dt;
+      if (state.chatT <= 0 && state.v > 2) {
+        caption(`${p.name}: ${CHAT[Math.floor(Math.random() * CHAT.length)]}`);
+        state.chatT = 50 + Math.random() * 40;
+      }
+      const signX = p.dest * PLACE_EVERY * PXM - 60;
+      if (carW > signX - 240 && carW < signX + 300 * PXM && state.v < 1.5) dropOff(false);
+      else if (carW > signX + 300 * PXM) dropOff(true);
+    }
+  }
+
+  // ---- drawing ----
+  function drawPerson(x, base, coat, ink, skin, card, wave, dest) {
+    ctx.fillStyle = rgb(ink);
+    ctx.fillRect(x - 4, base - 14, 3, 14);
+    ctx.fillRect(x + 1, base - 14, 3, 14);
+    ctx.fillStyle = rgb(mix(coat, ink, 0.35));
+    ctx.fillRect(x - 10, base - 30, 6, 14);           // backpack
+    ctx.fillStyle = rgb(coat);
+    ctx.fillRect(x - 5, base - 31, 10, 18);           // coat
+    ctx.fillStyle = rgb(skin);
+    ctx.beginPath(); ctx.arc(x, base - 35.5, 4.2, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = rgb(ink);
+    ctx.fillRect(x - 4.5, base - 40.5, 9, 3);         // hat
+    // arm out with thumb up
+    ctx.strokeStyle = rgb(coat);
+    ctx.lineWidth = 2.6;
+    ctx.beginPath();
+    ctx.moveTo(x + 4, base - 27);
+    ctx.lineTo(x + 13, base - 31 - wave);
+    ctx.stroke();
+    ctx.fillStyle = rgb(skin);
+    ctx.fillRect(x + 12, base - 35 - wave, 2.2, 4);
+    // cardboard sign with where they're going
+    if (dest) {
+      ctx.font = '500 6.5px "IBM Plex Mono", monospace';
+      const w = Math.max(28, ctx.measureText(dest).width + 6);
+      ctx.fillStyle = rgb(card);
+      ctx.fillRect(x - 6 - w, base - 27, w, 10);
+      ctx.fillStyle = rgb(ink);
+      ctx.textAlign = 'center';
+      ctx.fillText(dest, x - 6 - w / 2, base - 19.5);
+      ctx.textAlign = 'left';
+    }
+  }
+
+  function drawSpotsBehind(dark, shade) {
+    const camM = state.cam / PXM;
+    ensureSpots(camM + W / PXM + 200);
+    const ink = shade(hex('#26231f')), skin = shade(hex('#c9a084')), card = shade(hex('#c8b48a'));
+    for (const sp of spots) {
+      if (sp.m < camM - 40) continue;
+      if (sp.m > camM + W / PXM + 40) break;
+      const x = sp.m * PXM - state.cam;
+      const base = roadY(sp.m * PXM) - 3;
+      if (sp.kind === 'hitch' && !state.done.has(sp.id)) {
+        const h = hitchInfo(sp);
+        const wave = Math.sin(state.time * 3 + sp.id) * 2;
+        drawPerson(x, base, shade(hex(h.coat)), ink, skin, card, wave, placeName(h.dest).toUpperCase());
+      } else if (sp.kind === 'cash' && !state.done.has(sp.id)) {
+        const a = 0.5 + 0.5 * Math.sin(state.time * 5 + sp.id);
+        ctx.fillStyle = rgb(shade(hex('#b9c7a8'), -0.2));
+        ctx.fillRect(x - 4, base - 3, 8, 3);
+        ctx.strokeStyle = `rgba(255,250,230,${0.35 + a * 0.5})`;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(x - 6, base - 6); ctx.lineTo(x + 6, base - 6);
+        ctx.moveTo(x, base - 12); ctx.lineTo(x, base);
+        ctx.stroke();
+      } else if (sp.kind === 'view') {
+        const post = shade(hex('#3b342c'));
+        ctx.fillStyle = rgb(post);
+        ctx.fillRect(x - 1.5, base - 52, 3, 52);
+        ctx.fillStyle = rgb(shade(hex('#6b4a2e'), -0.1));
+        ctx.fillRect(x - 36, base - 70, 72, 20);
+        ctx.fillStyle = rgb(shade(hex('#efe7d6'), -0.15));
+        ctx.font = '500 9.5px "IBM Plex Mono", monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText(state.done.has(sp.id) ? 'VIEWPOINT ✓' : 'VIEWPOINT', x, base - 56.5);
+        ctx.textAlign = 'left';
+        // bench
+        ctx.fillStyle = rgb(post);
+        ctx.fillRect(x + 22, base - 10, 26, 2.5);
+        ctx.fillRect(x + 22, base - 16, 26, 2);
+        ctx.fillRect(x + 24, base - 10, 2, 10);
+        ctx.fillRect(x + 44, base - 10, 2, 10);
+      }
+    }
+  }
+
+  function drawSheep(x, y, wool, ink, dir) {
+    ctx.fillStyle = rgb(ink);
+    for (const lx of [-5, -2, 3, 6]) ctx.fillRect(x + lx, y - 6, 1.6, 6);
+    ctx.fillStyle = rgb(wool);
+    ctx.beginPath();
+    ctx.ellipse(x, y - 10, 9.5, 6, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = rgb(ink);
+    ctx.beginPath();
+    ctx.ellipse(x + dir * 10, y - 12, 3.4, 2.6, dir * 0.4, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  function drawSpotsOnRoad(dark, shade) {
+    const camM = state.cam / PXM;
+    const wool = shade(hex('#d8d3c6'), -0.1), ink = shade(hex('#24211d'));
+    for (const sp of spots) {
+      if (sp.m < camM - 60) continue;
+      if (sp.m > camM + W / PXM + 60) break;
+      const x0 = sp.m * PXM - state.cam;
+      const e = ev[sp.id] || { t: -1 };
+      const gone = state.done.has(sp.id);
+      const since = e.t >= 0 ? state.time - e.t : 0;
+      if (sp.kind === 'sheep' && (!gone || (e.t >= 0 && since < 2.5))) {
+        const k = gone ? smooth(0, 2.5, since) : 0;
+        ctx.globalAlpha = 1 - k;
+        const n = 5 + Math.floor(sp.r * 5);
+        for (let i = 0; i < n; i++) {
+          const ox = (hash2(i, sp.id) - 0.5) * 140;
+          const x = x0 + ox + k * (hash2(i, sp.id + 1) - 0.3) * 120;
+          const y = roadY(sp.m * PXM + ox) + 8 + (hash2(i, sp.id + 2) - 0.5) * 6 - k * 40;
+          const bob = gone ? 0 : Math.sin(state.time * 2 + i) * 0.6;
+          drawSheep(x, y + bob, wool, ink, hash2(i, sp.id + 3) < 0.5 ? -1 : 1);
+        }
+        ctx.globalAlpha = 1;
+      } else if (sp.kind === 'tree' && (!gone || (e.t >= 0 && since < 2))) {
+        const k = gone ? smooth(0, 2, since) : 0;
+        ctx.globalAlpha = 1 - k;
+        const base = roadY(sp.m * PXM) + 8;
+        ctx.save();
+        ctx.translate(x0 - k * 60, base - k * 30);
+        ctx.rotate(-0.42 - k * 0.3);
+        ctx.fillStyle = rgb(shade(hex('#4a3a2c')));
+        ctx.fillRect(-10, -6, 150, 11);
+        ctx.strokeStyle = rgb(shade(hex('#4a3a2c')));
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        for (const [bx, by, ex, ey] of [[40, -4, 60, -26], [70, 4, 95, 22], [95, -4, 120, -24], [118, 2, 150, 14]]) { ctx.moveTo(bx, by); ctx.lineTo(ex, ey); }
+        ctx.stroke();
+        ctx.fillStyle = rgb(shade(hex('#3a4a33')));
+        ctx.beginPath();
+        for (const [cx, cy, r] of [[130, -8, 22], [150, 6, 18], [108, -22, 16], [118, 16, 15]]) { ctx.moveTo(cx + r, cy); ctx.arc(cx, cy, r, 0, Math.PI * 2); }
+        ctx.fill();
+        ctx.restore();
+        ctx.globalAlpha = 1;
+      } else if (sp.kind === 'deer' && e.t >= 0 && since < 1.5) {
+        const k = since / 1.5;
+        const x = x0 - 30 + k * 160;
+        const y = roadY(sp.m * PXM) + 4 - Math.sin(k * Math.PI) * 34 - k * 30;
+        const sc = 1 - k * 0.45;
+        ctx.globalAlpha = 1 - smooth(0.7, 1, k);
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.scale(sc, sc);
+        const c = shade(hex('#6a4a32'));
+        ctx.fillStyle = rgb(c);
+        ctx.strokeStyle = rgb(c);
+        ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.ellipse(0, -18, 14, 6.5, -0.15, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath();
+        ctx.moveTo(11, -22); ctx.lineTo(17, -34);
+        ctx.moveTo(-10, -14); ctx.lineTo(-20, -4);
+        ctx.moveTo(-6, -14); ctx.lineTo(-14, -2);
+        ctx.moveTo(8, -14); ctx.lineTo(20, -8);
+        ctx.moveTo(11, -15); ctx.lineTo(24, -12);
+        ctx.stroke();
+        ctx.beginPath(); ctx.ellipse(19, -36, 4.5, 2.6, 0.3, 0, Math.PI * 2); ctx.fill();
+        ctx.restore();
+        ctx.globalAlpha = 1;
+      }
     }
   }
 
@@ -611,6 +1090,13 @@
     ctx.moveTo(-30, -44); ctx.lineTo(-34, -32);
     ctx.moveTo(4, -44); ctx.lineTo(0, -32);
     ctx.stroke();
+
+    // a passenger in the back
+    if (c.passenger) {
+      ctx.fillStyle = rgb(c.passenger, 0.85);
+      ctx.beginPath(); ctx.arc(-25, -38.5, 4.6, 0, Math.PI * 2); ctx.fill();
+      ctx.fillRect(-31, -34, 12, 4);
+    }
 
     // trim and doors
     ctx.strokeStyle = rgb(c.trim, 0.55);
@@ -748,11 +1234,16 @@
     fogWash(fog, 0.45 * density, 330);
     fogBanks(0.18, 470, 1.1, 0.75 * density, 300, 7);
 
-    const snowCol = shade(mix(hex('#dfe3e4'), fog, 0.3));
-    drawTreeLayer(LAYERS.back, pal, shade(pal.back), snowCol, distM);
+    const extra = {
+      snow: shade(mix(hex('#dfe3e4'), fog, 0.3)),
+      birch: shade(mix(hex('#e6e3da'), fog, 0.35)),
+      grass: shade(hex('#56603c')),
+      water: shade(mix(mix(pal.front, sky.top, 0.45), fog, 0.2))
+    };
+    drawTreeLayer(LAYERS.back, pal, shade(pal.back), extra, distM);
     fogWash(fog, 0.38 * density, 380);
     fogBanks(0.4, 505, 0.95, 0.6 * density, 400, 5);
-    drawTreeLayer(LAYERS.front, pal, shade(pal.front), snowCol, distM);
+    drawTreeLayer(LAYERS.front, pal, shade(pal.front), extra, distM);
     fogWash(fog, 0.3 * density, 420);
     fogBanks(0.7, 540, 0.9, 0.55 * density, 500, 4);
 
@@ -762,6 +1253,8 @@
     drawSigns(dark, near, shade(hex('#e4ddcc'), -0.15), shade(hex('#2d2b28')));
     drawStations(dark, shade(hex('#b9b1a2')), shade(hex('#3b3a37')), LAMP);
     drawMarkerPosts(shade(hex('#d8d4ca'), -0.1));
+    state.dark = dark;
+    drawSpotsBehind(dark, shade);
 
     // grass edge behind the road
     ctx.beginPath();
@@ -794,6 +1287,8 @@
     ctx.fillStyle = rgb(shade(pal.ground));
     ctx.fill();
 
+    drawSpotsOnRoad(dark, shade);
+
     // car
     const carW = state.cam + carX;
     const yb = roadY(carW - 34), yf = roadY(carW + 34);
@@ -823,6 +1318,7 @@
       carCols.head = mix(CAR.head, hex('#fff4d8'), lightsOn);
       carCols.tail = mix(CAR.tail, hex('#ff4a36'), lightsOn);
     }
+    carCols.passenger = state.passenger ? shade(hex('#1e1c1a')) : null;
     drawCar(carX, cy, angle, carW / 11, carCols);
 
     // headlights cutting through the mist
@@ -895,6 +1391,13 @@
       ctx.stroke();
     }
 
+    // lightning
+    if (state.flash > 0.01) {
+      ctx.fillStyle = `rgba(232,236,242,${state.flash * 0.5})`;
+      ctx.fillRect(0, -yOff, W, H + yOff);
+      state.flash = Math.max(0, state.flash - dt * 2.6);
+    }
+
     // vignette and film grain
     ctx.fillStyle = vignette;
     ctx.fillRect(0, -yOff, W, H + yOff);
@@ -925,7 +1428,9 @@
     acctCreate: $('acctCreate'), acctError: $('acctError'), acctName: $('acctName'), acctStatus: $('acctStatus'),
     acctSave: $('acctSave'), acctSignOut: $('acctSignOut'), introAcct: $('introAcct'),
     fullscreen: $('fullscreenToggle'), lowPower: $('lowPower'),
-    screenBtn: $('screenBtn'), accountRadioBox: $('accountRadioBox'), spAcctText: $('spAcctText'),
+    screenBtn: $('screenBtn'), money: $('money'), cans: $('cans'), nextFuel: $('nextFuel'), passenger: $('passenger'),
+    caption: $('caption'), gameover: $('gameover'), overText: $('overText'), overStats: $('overStats'), restart: $('restartBtn'),
+    actionBtn: document.querySelector('#touch [data-act="action"]'), accountRadioBox: $('accountRadioBox'), spAcctText: $('spAcctText'),
     spOpenScreen: $('spOpenScreen'), spDisconnect: $('spDisconnect')
   };
 
@@ -943,6 +1448,8 @@
   }
 
   let hudTimer = 0;
+  let action = null;
+  function runAction() { if (action) action.run(); }
   function updateHud(info, dt) {
     hudTimer -= dt;
     if (hudTimer > 0) return;
@@ -965,14 +1472,65 @@
     ui.fuel.style.width = `${state.fuel}%`;
     ui.fuel.classList.toggle('low', state.fuel < 15);
 
+    // money, jerry cans, next fuel, passenger
+    ui.money.textContent = `£${state.money}`;
+    let cansHtml = '';
+    for (let i = 0; i < MAX_CANS; i++) {
+      const c = state.cans[i];
+      cansHtml += `<i class="can ${c === undefined ? 'none' : c ? 'full' : 'empty'}"></i>`;
+    }
+    if (ui.cans.innerHTML !== cansHtml) ui.cans.innerHTML = cansHtml;
+    const nextWx = nextStationAfter(info.carW + 100);
+    ui.nextFuel.textContent = `next fuel ${((nextWx - info.carW) / PXM / 1000).toFixed(1)} km`;
+    ui.passenger.textContent = state.passenger ? `Passenger: ${state.passenger.name}, to ${placeName(state.passenger.dest)}` : '';
+
+    const touch = IS_TOUCH;
+    const stInfo = nearestStationInfo(info.carW);
+    const atSt = Math.abs(stInfo.wx - info.carW) < 90;
+    const gap = (stInfo.wx - info.carW) / PXM;
     let msg = '';
-    const st = nearestStation(info.carW);
-    const gap = (st - info.carW) / PXM;
-    if (state.fuel <= 0 && state.v < 0.5) msg = 'Out of fuel. Press T to wait for a tow.';
-    else if (Math.abs(st - info.carW) < 90 && state.v < 1.5 && state.fuel < 99.5) msg = `Filling up… ${Math.round(state.fuel)}%`;
-    else if (Math.abs(st - info.carW) < 90 && state.fuel < 99.5) msg = 'Stop here to fill up';
-    else if (gap > 0 && gap < 260 && state.fuel < 80) msg = 'Fuel stop ahead';
-    else if (state.fuel < 15) msg = 'Running low on fuel';
+    action = null;
+    const fullCan = state.cans.includes(true);
+
+    // what's on the road just ahead?
+    let ahead = null;
+    for (const sp of spots) {
+      const d = (sp.m * PXM - info.carW);
+      if (d < -90) continue;
+      if (d > 520) break;
+      if (!state.done.has(sp.id) && sp.kind !== 'cash' && sp.kind !== 'deer') { ahead = { sp, d }; break; }
+      if (sp.kind === 'view' && state.done.has(sp.id)) continue;
+    }
+
+    if (state.over) msg = '';
+    else if (state.fuel <= 0 && !fullCan) msg = 'Out of fuel…';
+    else if (atSt && stInfo.closed) msg = 'This fuel station is closed. Hope you’ve got enough to reach the next one.';
+    else if (atSt && state.v < 1.5) {
+      const canBuy = state.cans.length < MAX_CANS;
+      msg = state.fuel < 99.5 ? `Filling up… ${Math.round(state.fuel)}%` : 'Tank full.';
+      if (canBuy) {
+        msg += touch ? ` Tap Buy can for a jerry can (£${CAN_PRICE}).` : ` Press E to buy a jerry can (£${CAN_PRICE}).`;
+        action = { label: `Buy can £${CAN_PRICE}`, run: buyCan };
+      }
+    } else if (atSt) msg = 'Stop here to fill up';
+    else if (ahead && ahead.sp.kind === 'hitch') {
+      const h = hitchInfo(ahead.sp);
+      msg = state.passenger
+        ? 'Someone’s thumbing a lift, but your back seat is taken.'
+        : `${h.name} wants a lift to ${placeName(h.dest)}. Stop next to them to pick them up.`;
+    } else if (ahead && ahead.sp.kind === 'sheep') msg = touch ? 'Sheep on the road. Stop and wait, or tap Horn.' : 'Sheep on the road. Stop and wait, or press H to honk.';
+    else if (ahead && ahead.sp.kind === 'tree') msg = 'A fallen tree is blocking the road. Stop and wait for help.';
+    else if (ahead && ahead.sp.kind === 'view') msg = touch ? 'Viewpoint. Take a photo here.' : 'Viewpoint. Press P to take a photo here.';
+    else if (state.passenger && info.carW > state.passenger.dest * PLACE_EVERY * PXM - 700) msg = `Stop to let ${state.passenger.name} out at ${placeName(state.passenger.dest)}.`;
+    else if (gap > 0 && gap < 260 && state.fuel < 80) msg = stInfo.closed ? 'Fuel stop ahead (it looks closed)' : 'Fuel stop ahead';
+    else if (state.fuel < 15 && fullCan) msg = touch ? 'Running low. Tap Use can to pour in a jerry can.' : 'Running low. Press J to pour in a jerry can.';
+    else if (state.fuel < 15) msg = 'Running low on fuel, and no full jerry can…';
+
+    if (!action && fullCan && state.fuel < 75) action = { label: 'Use can', run: () => useCan(false) };
+    if (ui.actionBtn) {
+      ui.actionBtn.hidden = !action;
+      if (action) ui.actionBtn.textContent = action.label;
+    }
     ui.prompt.textContent = msg;
   }
 
@@ -1063,6 +1621,12 @@
       return;
     }
     updateAlbumLink();
+    for (const sp of spots) {
+      if (sp.kind === 'view' && !state.done.has(sp.id) && Math.abs(sp.m * PXM - (state.cam + carX)) < 320) {
+        state.done.add(sp.id);
+        setTimeout(() => earn(6, 'A gallery in town buys the postcard from the viewpoint for \u00a36.'), 1400);
+      }
+    }
     if (navigator.vibrate) navigator.vibrate(12);
     Account.pushCard(cards[0]);
     toast(`Postcard from ${place} added to your album`);
@@ -1078,7 +1642,7 @@
     const carW = state.cam + carX;
     let throttle = 0;
 
-    if (state.started && !state.paused) {
+    if (state.started && !state.paused && !state.over) {
       readGamepad();
       const goNow = input.go || pad.go, brakeNow = input.brake || pad.brake;
       const canDrive = state.fuel > 0;
@@ -1102,8 +1666,33 @@
       if (canDrive) state.fuel = Math.max(0, state.fuel - (moved / FUEL_RANGE) * 100 * (throttle ? 1.25 : 0.9));
       stats.metres += moved;
 
-      const st = nearestStation(carW);
-      if (Math.abs(st - carW) < 90 && state.v < 1.5) state.fuel = Math.min(100, state.fuel + 22 * dt);
+      // fill up (and fill any empty jerry cans) when stopped at an open station
+      if (atOpenStation(carW) && state.v < 1.5) {
+        state.fuel = Math.min(100, state.fuel + 22 * dt);
+        if (state.cans.includes(false) && state.fuel > 99) {
+          state.cans = state.cans.map(() => true);
+          toast('You filled your jerry cans too.');
+        }
+      }
+
+      updateJourney(dt, state.cam + carX);
+
+      // out of fuel: use a jerry can if there is one, otherwise the journey ends
+      if (state.fuel <= 0) {
+        if (!useCan(true) && state.v < 0.3 && !atOpenStation(state.cam + carX)) {
+          state.emptyT += dt;
+          if (state.emptyT > 1.6) gameOver();
+        }
+      } else {
+        state.emptyT = 0;
+      }
+
+      // storms
+      const rainHere = clamp((noise(((state.cam + carX) / PXM) * 0.0009, 77) * 0.5 + 0.5) * 2.2 - 1.45, 0, 1);
+      if (rainHere > 0.55 && Math.random() < dt / 9) {
+        state.flash = 0.6 + Math.random() * 0.4;
+        RoadAudio.thunder(0.5 + Math.random() * 1.8);
+      }
 
       // exhaust puffs
       const rate = 3 + throttle * 16 + state.v * 0.2;
@@ -1132,7 +1721,10 @@
     saveTimer -= 1;
     if (!force && saveTimer > 0) return;
     saveTimer = 300;
-    LR.save(LR.KEYS.journey, { cam: state.cam, tod: state.tod, fuel: state.fuel });
+    LR.save(LR.KEYS.journey, {
+      cam: state.cam, tod: state.tod, fuel: state.fuel, seed: state.seed, money: state.money, cans: state.cans,
+      passenger: state.passenger, done: [...state.done].slice(-200), carried: state.carried, earned: state.earned
+    });
     LR.save(LR.KEYS.stats, stats);
   }
 
@@ -1508,14 +2100,61 @@
     }
   });
 
-  function tow() {
-    if (state.fuel > 0 || state.v > 0.5) return;
-    const st = nextStationAfter(state.cam + carX + 1);
-    state.cam = st - carX - 260;
-    state.fuel = 12;
-    particles = [];
-    toast('A farmer towed you to the next fuel stop.');
+  // ---------------------------------------------------------------------------
+  // End of the road
+  // ---------------------------------------------------------------------------
+  function gameOver() {
+    if (state.over) return;
+    state.over = true;
+    state.v = 0;
+    state.cruise = false;
+    input.go = input.brake = false;
+    const km = (state.cam + carX) / PXM / 1000;
+    stats.best = Math.max(stats.best || 0, km);
+    stats.journeys = (stats.journeys || 0) + 1;
+    const place = placeName(Math.floor((state.cam + carX) / PXM / PLACE_EVERY));
+    ui.overText.textContent = `You ran dry near ${place}, with no fuel left in the tank and nothing in the jerry cans.`;
+    ui.overStats.innerHTML = '';
+    const rows = [
+      ['Distance', `${km.toFixed(1)} km`],
+      ['Best journey', `${stats.best.toFixed(1)} km`],
+      ['Hitchhikers carried', String(state.carried)],
+      ['Money earned', `\u00a3${state.earned}`]
+    ];
+    for (const [k, v] of rows) {
+      const dt = document.createElement('dt'); dt.textContent = k;
+      const dd = document.createElement('dd'); dd.textContent = v;
+      ui.overStats.append(dt, dd);
+    }
+    ui.gameover.classList.add('open');
+    persist(true);
+    Account.pushSave(true);
   }
+
+  function newJourney() {
+    state.cam = 0;
+    state.v = 0;
+    state.fuel = 100;
+    state.tod = 0.235;
+    state.seed = (Math.random() * 1e6) | 0;
+    state.money = 5;
+    state.cans = [];
+    state.passenger = null;
+    state.done = new Set();
+    state.carried = 0;
+    state.earned = 0;
+    state.emptyT = 0;
+    state.over = false;
+    state.lastPlace = -1;
+    particles = [];
+    for (const k in ev) delete ev[k];
+    ui.gameover.classList.remove('open');
+    persist(true);
+    Account.pushSave(true);
+    toast('A new road. Good luck.');
+  }
+
+
 
   const GO = ['ArrowUp', 'ArrowRight', 'KeyW', 'KeyD'];
   const BRAKE = ['ArrowDown', 'ArrowLeft', 'KeyS', 'KeyA'];
@@ -1523,6 +2162,7 @@
   addEventListener('keydown', (e) => {
     if (e.metaKey || e.ctrlKey || e.altKey) return;
     if (settingsOpen()) { if (e.code === 'Escape') closeSettings(); return; }
+    if (state.over) { if (e.code === 'Enter' || e.code === 'Space') { e.preventDefault(); newJourney(); } return; }
     if (CarScreen.isOpen && e.code === 'Escape') { CarScreen.close(); return; }
     if (e.code === 'KeyN' && !e.repeat) { begin(); CarScreen.toggle(); return; }
     if (e.code === 'Escape' || e.code === 'KeyO') { e.preventDefault(); openSettings(); return; }
@@ -1534,7 +2174,9 @@
     else if ((e.code === 'KeyP' || e.code === 'Space') && !e.repeat) { e.preventDefault(); if (lastInfo) takePostcard(lastInfo); }
     else if (e.code === 'KeyR' && !e.repeat) toggleRadio();
     else if (e.code === 'KeyM' && !e.repeat) toggleSound();
-    else if (e.code === 'KeyT' && !e.repeat) tow();
+    else if (e.code === 'KeyE' && !e.repeat) buyCan();
+    else if (e.code === 'KeyJ' && !e.repeat) useCan(false);
+    else if (e.code === 'KeyH' && !e.repeat) honk();
   });
 
   addEventListener('keyup', (e) => {
@@ -1568,7 +2210,8 @@
       if (act === 'photo' && lastInfo) takePostcard(lastInfo);
       if (act === 'cruise') toggleCruise();
       if (navigator.vibrate && (act === 'go' || act === 'brake')) navigator.vibrate(6);
-      if (act === 'go' && state.fuel <= 0) tow();
+      if (act === 'action') runAction();
+      if (act === 'horn') honk();
     });
     const release = () => {
       if (act === 'go') input.go = false;
@@ -1589,6 +2232,7 @@
   buildStars();
   resize();
   buildDrops();
+  ui.restart.addEventListener('click', newJourney);
   syncButtons();
   syncAccountUi();
   updateAlbumLink();
@@ -1606,6 +2250,18 @@
   const qs = new URLSearchParams(location.search);
   if (qs.has('t')) state.tod = parseFloat(qs.get('t')) % 1;
   if (qs.has('km')) state.cam = parseFloat(qs.get('km')) * 1000 * PXM;
+
+  if (qs.has('debug')) {
+    window.__lr = {
+      state, ev, input,
+      get spots() { return spots; },
+      ensureSpots, ensureStations,
+      get stations() { return stationList; },
+      biomeIndex, BIOMES, PXM, SEG, PLACE_EVERY,
+      carX: () => carX,
+      newJourney
+    };
+  }
 
   requestAnimationFrame(frame);
 })();

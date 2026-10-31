@@ -1,0 +1,14 @@
+{
+  "name": "Lost Roads",
+  "short_name": "Lost Roads",
+  "description": "A slow drive through the fog.",
+  "start_url": "./index.html",
+  "display": "fullscreen",
+  "orientation": "any",
+  "background_color": "#1b2026",
+  "theme_color": "#1b2026",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}

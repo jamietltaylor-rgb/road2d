@@ -1,0 +1,254 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Lost Roads</title>
+  <meta name="description" content="A slow drive through the fog. No timer, no finish line.">
+  <meta name="theme-color" content="#1b2026">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/icon-180.png">
+  <link rel="manifest" href="manifest.webmanifest">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Lost Roads">
+  <meta name="format-detection" content="telephone=no">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,500;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body class="game">
+  <canvas id="scene" aria-label="A car driving along a foggy road"></canvas>
+  <div id="flash"></div>
+
+  <header class="hud hud-top">
+    <div class="where">
+      <div id="place" class="place"></div>
+      <div id="region" class="meta"></div>
+      <div id="passenger" class="meta passenger"></div>
+    </div>
+    <div class="odo">
+      <span class="meta">Odometer</span>
+      <span id="km" class="num">0.0 km</span>
+      <button type="button" id="screenBtn" class="hud-link">Music</button>
+      <button type="button" id="settingsBtn" class="hud-link">Settings</button>
+    </div>
+  </header>
+
+  <footer class="hud hud-bottom">
+    <div class="gauges">
+      <div class="gauge">
+        <span class="meta" id="speedLabel">Speed</span>
+        <span id="speed" class="num">0 km/h</span>
+      </div>
+      <div class="gauge">
+        <span class="meta">Fuel</span>
+        <span class="bar"><i id="fuel"></i></span>
+        <span id="nextFuel" class="sub"></span>
+      </div>
+      <div class="gauge">
+        <span class="meta">Jerry cans</span>
+        <span id="cans" class="cans"></span>
+      </div>
+      <div class="gauge">
+        <span class="meta">Money</span>
+        <span id="money" class="num">&pound;0</span>
+      </div>
+    </div>
+    <div id="prompt" class="prompt"></div>
+    <nav class="links">
+      <a href="album.html" id="albumLink">Album</a>
+      <a href="leaderboard.html" id="boardLink">Leaderboard</a>
+      <button type="button" id="radioBtn">Radio off</button>
+      <button type="button" id="soundBtn">Sound on</button>
+    </nav>
+  </footer>
+
+  <section id="intro">
+    <p class="kicker">A slow drive</p>
+    <h1>Lost Roads</h1>
+    <p class="lede">Somewhere between the hills and the sea, the road keeps going. Pick up hitchhikers for a bit of money, spend it at the garage, deal with whatever's blocking the road, and keep an eye on the fuel: the stations are far apart, and some have shut for good. Run dry with nothing in the boot and the journey's over.</p>
+    <dl class="keys touch-keys">
+      <dt>Drive</dt><dd>Hold to go</dd>
+      <dt>Brake</dt><dd>Hold to slow down</dd>
+      <dt>Cruise</dt><dd>Keep your speed without holding</dd>
+      <dt>Stop</dt><dd>Next to a hitchhiker to give them a lift</dd>
+      <dt>Photo</dt><dd>Take a postcard</dd>
+    </dl>
+    <dl class="keys desk-keys">
+      <dt>&uarr; / W</dt><dd>Accelerate</dd>
+      <dt>&darr; / S</dt><dd>Brake</dd>
+      <dt>C</dt><dd>Cruise control</dd>
+      <dt>E</dt><dd>Garage, clear the road, fix things</dd>
+      <dt>J</dt><dd>Pour in a jerry can</dd>
+      <dt>H</dt><dd>Horn</dd>
+      <dt>P</dt><dd>Take a postcard</dd>
+      <dt>R</dt><dd>Radio</dd>
+      <dt>N</dt><dd>Car screen (music)</dd>
+      <dt>M</dt><dd>Sound</dd>
+      <dt>Esc</dt><dd>Settings</dd>
+      <dt>F</dt><dd>Full screen</dd>
+    </dl>
+    <p class="gamepad-note desk-only">Got a controller? Plug it in: right trigger drives, left trigger brakes.</p>
+    <p class="go"><span class="desktop-only">Press any key to set off</span><span class="touch-only">Tap to set off</span></p>
+    <p id="resume" class="meta"></p>
+    <p class="intro-acct" id="introAcct"></p>
+    <p class="rotate-hint">Turn your phone sideways for a wider view of the road.</p>
+  </section>
+
+  <div id="touch" aria-hidden="true">
+    <button type="button" data-act="brake">Brake</button>
+    <div class="mid">
+      <button type="button" data-act="action" class="small wide" hidden>Use can</button>
+      <button type="button" data-act="horn" class="small">Horn</button>
+      <button type="button" data-act="cruise" class="small">Cruise</button>
+      <button type="button" data-act="photo" class="small">Photo</button>
+    </div>
+    <button type="button" data-act="go">Drive</button>
+  </div>
+
+
+  <div id="spotifyDock" aria-label="Spotify player">
+    <div class="dock-head"><span class="meta">Radio · Spotify</span><button type="button" id="dockHide" class="dock-btn">Hide</button></div>
+    <div id="spotifyEmbed"></div>
+  </div>
+
+  <div id="carScreen" aria-hidden="true"></div>
+
+  <aside id="settings" aria-hidden="true">
+    <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
+      <header class="sheet-head">
+        <div>
+          <p class="kicker">Pulled over</p>
+          <h2 id="settingsTitle">Settings</h2>
+        </div>
+        <button type="button" id="closeSettings" class="link">Back to the road</button>
+      </header>
+
+
+      <section id="accountSection">
+        <h3>Account</h3>
+        <div id="acctOut">
+          <p class="note lead">Sign in to keep your progress and postcards safe, carry on from any phone or computer, and get your furthest journey on the <a href="leaderboard.html">leaderboard</a>.</p>
+          <form id="acctForm" autocomplete="on">
+            <label class="field"><span class="meta">Username</span><span class="field-row"><input type="text" id="acctUser" name="username" autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="20"></span></label>
+            <label class="field"><span class="meta">Password</span><span class="field-row"><input type="password" id="acctPass" name="password" autocomplete="current-password" maxlength="200"></span></label>
+            <div class="acct-actions">
+              <button type="submit" id="acctSignIn" class="link">Sign in</button>
+              <button type="button" id="acctCreate" class="link">Create account</button>
+            </div>
+          </form>
+          <p class="note error" id="acctError"></p>
+          <p class="note small">There's no email address, so a forgotten password can't be reset. Pick one you'll remember.</p>
+        </div>
+        <div id="acctIn">
+          <p class="acct-name">Signed in as <em id="acctName"></em></p>
+          <p class="note" id="acctStatus">Your progress saves to your account automatically.</p>
+          <div class="acct-actions">
+            <a href="leaderboard.html" class="link">Leaderboard</a>
+            <button type="button" id="acctSave" class="link">Save now</button>
+            <button type="button" id="acctSignOut" class="link">Sign out</button>
+          </div>
+        </div>
+      </section>
+      <section>
+        <h3>Engine</h3>
+        <div class="choices" id="engineChoices">
+          <label><input type="radio" name="engine" value="petrol"><span class="name">Old petrol</span><span class="desc">The estate's own four-cylinder. Warm, a little tired.</span></label>
+          <label><input type="radio" name="engine" value="diesel"><span class="name">Farm diesel</span><span class="desc">A low clatter, like a Land Rover on a cold morning.</span></label>
+          <label><input type="radio" name="engine" value="twostroke"><span class="name">Two-stroke</span><span class="desc">Thin and buzzy, like a moped that's been pushed too hard.</span></label>
+          <label><input type="radio" name="engine" value="electric"><span class="name">Electric</span><span class="desc">A soft rising whine. Silent when you stop.</span></label>
+          <label><input type="radio" name="engine" value="off"><span class="name">No engine</span><span class="desc">Just the road, the wind and the rain.</span></label>
+        </div>
+        <label class="slider"><span class="meta">Engine volume</span><input type="range" id="engineVol" min="0" max="1" step="0.05"></label>
+      </section>
+
+      <section>
+        <h3>Radio</h3>
+        <div class="choices" id="radioChoices">
+          <label><input type="radio" name="radio" value="off"><span class="name">Off</span><span class="desc">Nothing playing.</span></label>
+          <label><input type="radio" name="radio" value="builtin"><span class="name">Car radio</span><span class="desc">Slow, hazy chords that drift along with you.</span></label>
+          <label><input type="radio" name="radio" value="spotify"><span class="name">A Spotify link</span><span class="desc">Paste any playlist, album or song. Works for everyone.</span></label>
+          <label><input type="radio" name="radio" value="account"><span class="name">Your Spotify account</span><span class="desc">Connect Spotify Premium and pick music on the car screen.</span></label>
+        </div>
+        <div id="accountRadioBox">
+          <p class="note" id="spAcctText"></p>
+          <div class="acct-actions">
+            <button type="button" id="spOpenScreen" class="link">Open car screen</button>
+            <button type="button" id="spDisconnect" class="link">Disconnect Spotify</button>
+          </div>
+        </div>
+        <div id="spotifyBox">
+          <label class="field">
+            <span class="meta">Spotify link</span>
+            <span class="field-row">
+              <input type="text" id="spotifyLink" inputmode="url" autocomplete="off" spellcheck="false" placeholder="https://open.spotify.com/playlist/...">
+              <button type="button" id="spotifyLoad" class="link">Play</button>
+            </span>
+          </label>
+          <p class="note">In Spotify, open a playlist, album or song, choose <em>Share</em> and then <em>Copy link</em>, and paste it here. If you're logged in to Spotify in this browser you'll usually hear full songs. If not, Spotify plays 30-second previews. If nothing starts, press play on the Spotify player.</p>
+          <p class="note error" id="spotifyError"></p>
+        </div>
+        <label class="slider" id="radioVolRow"><span class="meta">Car radio volume</span><input type="range" id="radioVol" min="0" max="1" step="0.05"></label>
+      </section>
+
+      <section id="displaySection">
+        <h3>Display</h3>
+        <label class="check"><input type="checkbox" id="fullscreenToggle"><span class="name">Full screen</span><span class="desc">Hide the browser around the game.</span></label>
+        <label class="check"><input type="checkbox" id="lowPower"><span class="name">Battery saver</span><span class="desc">Draws at a lower resolution with less rain. Smoother on older phones.</span></label>
+        <p class="note small install-tip">On iPhone, tap <em>Share</em> then <em>Add to Home Screen</em> to play full screen like an app.</p>
+      </section>
+
+      <section>
+        <h3>Sound</h3>
+        <label class="check"><input type="checkbox" id="soundAll"><span class="name">Game sound on</span><span class="desc">Engine, road, rain and the car radio. Spotify has its own volume on its player.</span></label>
+      </section>
+    </div>
+  </aside>
+
+  <div id="caption" aria-live="polite"></div>
+
+  <div id="minigame" aria-hidden="true"></div>
+
+  <aside id="garage" aria-hidden="true">
+    <div class="g-card" role="dialog" aria-labelledby="garageTitle">
+      <header class="g-head">
+        <div>
+          <p class="kicker">Fuel station</p>
+          <h2 id="garageTitle">The garage</h2>
+        </div>
+        <p class="g-money"><span class="meta">Money</span> <span id="garageMoney"></span></p>
+      </header>
+      <div id="garageList"></div>
+      <button type="button" id="garageClose" class="link g-close">Back to the road</button>
+    </div>
+  </aside>
+
+  <section id="gameover" aria-live="assertive">
+    <div class="over-inner">
+      <p class="kicker">End of the road</p>
+      <h2>Out of fuel</h2>
+      <p id="overText" class="over-text"></p>
+      <dl id="overStats" class="over-stats"></dl>
+      <button type="button" id="restartBtn" class="over-btn">Start a new journey</button>
+      <a href="leaderboard.html" class="over-link" id="overBoard">See the leaderboard</a>
+      <p class="meta over-note">Your postcards stay in your album.</p>
+    </div>
+  </section>
+
+  <div id="toast" role="status" aria-live="polite"></div>
+
+  <script src="js/shared.js"></script>
+  <script src="js/audio.js"></script>
+  <script src="js/spotify.js"></script>
+  <script src="js/supabase-config.js"></script>
+  <script src="js/account.js"></script>
+  <script src="js/spotify-config.js"></script>
+  <script src="js/spotify-account.js"></script>
+  <script src="js/carscreen.js"></script>
+  <script src="js/minigames.js"></script>
+  <script src="js/game.js"></script>
+</body>
+</html>

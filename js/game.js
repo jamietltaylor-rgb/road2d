@@ -196,6 +196,7 @@
 
   const state = {
     cam: saved ? saved.cam : 0,
+    trip: saved ? (saved.trip != null ? saved.trip : Math.max(0, saved.cam / PXM)) : 0,   // metres on the odometer this journey
     tod: saved ? saved.tod : 0.235,
     fuel: saved ? saved.fuel : 100,
     v: 0,
@@ -1784,7 +1785,7 @@
       ui.place.classList.add('show');
     }
     ui.region.textContent = `${info.pal.name} · ${clockText(state.tod)}`;
-    ui.km.textContent = `${(stats.metres / MILE).toFixed(1)} miles`;
+    ui.km.textContent = `${(state.trip / MILE).toFixed(1)} miles this journey`;
     ui.speed.textContent = `${Math.round(state.v * MPH)} mph`;
     ui.speedLabel.textContent = state.cruise ? 'Cruise' : 'Speed';
     const cb = document.querySelector('#touch [data-act="cruise"]');
@@ -1930,7 +1931,7 @@
     document.getElementById('speedo').classList.toggle('cruise', state.cruise);
 
     // odometer: each wheel rolls over as the one to its right goes from 9 to 0
-    const tenths = (stats.metres / MILE) * 10;
+    const tenths = (state.trip / MILE) * 10;
     let lower = tenths % 10;
     for (let i = ODO_WHEELS - 1; i >= 0; i--) {
       const k = ODO_WHEELS - 1 - i;
@@ -2091,6 +2092,7 @@
       const burn = throttle ? 1.25 : state.cruise ? 0.7 : 0;
       if (canDrive && burn) state.fuel = Math.max(0, state.fuel - (moved / FUEL_RANGE) * 100 * burn);
       stats.metres += moved;
+      state.trip += moved;
 
       updateJourney(dt, state.cam + carX);
 
@@ -2139,7 +2141,7 @@
     if (!force && saveTimer > 0) return;
     saveTimer = 300;
     LR.save(LR.KEYS.journey, {
-      cam: state.cam, tod: state.tod, fuel: state.fuel, seed: state.seed, money: state.money, cans: state.cans,
+      cam: state.cam, trip: state.trip, tod: state.tod, fuel: state.fuel, seed: state.seed, money: state.money, cans: state.cans,
       passengers: state.passengers, seats: state.seats, stuck: state.stuck, flat: state.flat,
       done: [...state.done].slice(-200), carried: state.carried, earned: state.earned
     });
@@ -2594,6 +2596,8 @@
 
   function newJourney() {
     state.cam = 0;
+    state.trip = 0;
+    lastTenth = -1;
     state.v = 0;
     state.fuel = 100;
     state.tod = 0.235;

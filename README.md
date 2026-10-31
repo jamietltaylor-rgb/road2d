@@ -199,7 +199,7 @@ Money, cans and seats are set near the top of the journey section in `js/game.js
 
 ## Checking an update went live
 
-The start screen shows the version number (for example "Version 13"). If you still see an older number after uploading:
+The start screen shows the version number (for example "Version 14"). If you still see an older number after uploading:
 
 1. Make sure the files went into the **top level** of the GitHub repo, replacing the old ones. `index.html` should sit next to the `js` and `css` folders, not inside a `lost-roads` folder.
 2. In Cloudflare, open the project's Deployments and check that the newest commit has built successfully.

@@ -1,13 +1,12 @@
-// Sign-in, cloud saves and the leaderboard, using Supabase.
+// Sign-in, cloud saves and the leaderboard. These talk to worker.js, which runs on
+// Cloudflare alongside the game's files and keeps everything in Cloudflare's storage.
 // Progress always saves on the device first; when you're signed in it's also copied
 // to your account so you can carry on from any phone or computer.
 window.Account = (() => {
-  const CFG = window.SUPABASE_CONFIG || {};
-  const URL_BASE = (CFG.url || '').replace(/\/+$/, '');
   const KEY = (window.LR_PREFIX || 'lostroads') + '.account';
-  const configured = !!(URL_BASE && CFG.anonKey);
-  // No email addresses: the game keeps its own usernames and passwords in your
-  // Supabase database (see supabase-setup.sql). Signing in gives this device a token.
+  const configured = location.protocol !== 'file:';
+  // No email addresses: usernames and scrambled passwords live in Cloudflare's
+  // storage (see worker.js). Signing in gives this device a token.
   const USERNAME = /^[A-Za-z0-9_-]{3,20}$/;
 
   let acct = LR.load(KEY, null);          // { token, username }
@@ -20,7 +19,7 @@ window.Account = (() => {
   const store = (a) => { acct = a; LR.save(KEY, a); };
 
   function notReady() {
-    return new Error('Accounts aren’t switched on for this site yet. (Site owner: add your Supabase details to js/supabase-config.js.)');
+    return new Error('Accounts aren’t switched on for this site yet. (Site owner: deploy it as a Cloudflare Worker, see README.)');
   }
 
   const MESSAGES = {
@@ -36,35 +35,35 @@ window.Account = (() => {
   function friendly(body, statusCode) {
     const msg = String((body && (body.message || body.msg || body.error)) || '');
     for (const k in MESSAGES) if (msg.includes(k)) return MESSAGES[k];
-    if (statusCode === 404 || /could not find the function|schema cache|does not exist/i.test(msg)) {
-      return 'The Supabase database isn’t set up yet. (Site owner: run the new supabase-setup.sql, see README.)';
+    if (statusCode === 404 || statusCode === 405) {
+      return 'Accounts aren’t switched on for this site yet. (Site owner: deploy it as a Cloudflare Worker with worker.js, see README.)';
     }
     if (statusCode === 429 || /rate limit/i.test(msg)) return 'Too many tries. Wait a minute and try again.';
     return msg || 'Something went wrong. Please try again.';
   }
 
-  // Calls one of the lr_ functions in supabase-setup.sql
-  async function rpc(name, args, keepalive) {
+  // Calls the game's server (worker.js) at /api/<action>
+  async function api(action, args, keepalive) {
     if (!configured) throw notReady();
     let res;
     try {
-      res = await fetch(`${URL_BASE}/rest/v1/rpc/${name}`, {
+      res = await fetch(`api/${action}`, {
         method: 'POST',
         keepalive: !!keepalive,
-        headers: { apikey: CFG.anonKey, 'content-type': 'application/json' },
+        headers: { 'content-type': 'application/json' },
         body: JSON.stringify(args || {})
       });
     } catch (e) {
       throw new Error('Couldn’t reach the save server. Check your connection.');
     }
-    if (res.status === 204) return null;
-    const data = await res.json().catch(() => null);
-    if (!res.ok) {
-      const err = new Error(friendly(data, res.status));
-      if (data && String(data.message || '').includes('signed_out')) { store(null); emit(); }
-      throw err;
+    const isJson = (res.headers.get('content-type') || '').includes('json');
+    const data = isJson ? await res.json().catch(() => null) : null;
+    if (!isJson) throw new Error(friendly(null, 404));   // no server here, just the static files
+    if (!res.ok || (data && data.error)) {
+      const code = data && data.error;
+      if (code === 'signed_out') { store(null); emit(); }
+      throw new Error(MESSAGES[code] || friendly(data, res.status));
     }
-    if (data && data.error) throw new Error(MESSAGES[data.error] || data.error);
     return data;
   }
 
@@ -86,7 +85,7 @@ window.Account = (() => {
   }
 
   async function fetchCards() {
-    return (await rpc('lr_get_cards', { p_token: acct.token })) || [];
+    return ((await api('getCards', { token: acct.token })) || {}).cards || [];
   }
 
   async function syncCards() {
@@ -102,7 +101,7 @@ window.Account = (() => {
 
   // Returns true if the account's progress replaced this device's progress
   async function syncAfterSignIn() {
-    const remote = await rpc('lr_get_save', { p_token: acct.token });
+    const remote = ((await api('getSave', { token: acct.token })) || {}).data || null;
     const local = collectLocal();
     const remoteMetres = remote && remote.stats ? remote.stats.metres || 0 : -1;
     const localMetres = local.stats ? local.stats.metres || 0 : 0;
@@ -123,7 +122,7 @@ window.Account = (() => {
     username = String(username || '').trim();
     if (!USERNAME.test(username)) throw new Error('Usernames are 3 to 20 letters, numbers, - or _.');
     if (create && password.length < 8) throw new Error('Passwords need at least 8 characters.');
-    const data = await rpc(create ? 'lr_sign_up' : 'lr_sign_in', { p_username: username, p_password: password });
+    const data = await api(create ? 'signup' : 'signin', { username, password });
     store({ token: data.token, username: data.username || username });
     emit();
     const replaced = await syncAfterSignIn();
@@ -134,7 +133,7 @@ window.Account = (() => {
   async function signOut() {
     if (acct) {
       await pushSave(true).catch(() => {});
-      rpc('lr_sign_out', { p_token: acct.token }).catch(() => {});
+      api('signout', { token: acct.token }).catch(() => {});
     }
     store(null);
     lastPushed = '';
@@ -147,7 +146,7 @@ window.Account = (() => {
     const body = JSON.stringify(data);
     if (!force && body === lastPushed) return false;
     try {
-      await rpc('lr_put_save', { p_token: acct.token, p_data: data });
+      await api('putSave', { token: acct.token, data });
       lastPushed = body;
       lastSaved = Date.now();
       status = '';
@@ -164,20 +163,20 @@ window.Account = (() => {
     const data = collectLocal();
     const body = JSON.stringify(data);
     if (body === lastPushed) return;
-    rpc('lr_put_save', { p_token: acct.token, p_data: data }, true).catch(() => {});
+    api('putSave', { token: acct.token, data }, true).catch(() => {});
     lastPushed = body;
   }
 
   async function pushCard(card) {
     if (!acct) return;
     try {
-      await rpc('lr_put_card', { p_token: acct.token, p_id: String(card.id), p_data: card });
+      await api('putCard', { token: acct.token, id: String(card.id), data: card });
     } catch (e) { status = e.message; emit(); }
   }
 
   async function deleteCard(id) {
     if (!acct) return;
-    try { await rpc('lr_delete_card', { p_token: acct.token, p_id: String(id) }); } catch (e) { status = e.message; emit(); }
+    try { await api('deleteCard', { token: acct.token, id: String(id) }); } catch (e) { status = e.message; emit(); }
   }
 
   async function pullCards() {
@@ -192,13 +191,13 @@ window.Account = (() => {
   async function submitBest(km) {
     if (!acct || !(km > lastBest + 0.05)) return;
     try {
-      await rpc('lr_submit_best', { p_token: acct.token, p_km: Math.round(km * 10) / 10 });
+      await api('submitBest', { token: acct.token, km: Math.round(km * 10) / 10 });
       lastBest = km;
     } catch (e) { /* try again next time */ }
   }
 
   async function leaderboard(limit = 50) {
-    return (await rpc('lr_leaderboard', { p_limit: limit })) || [];
+    return ((await api('leaderboard', { limit })) || {}).rows || [];
   }
 
   return {

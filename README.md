@@ -2,7 +2,7 @@
 
 A slow driving game for the browser. You drive an old estate car through ten foggy landscapes while the day turns to night and the weather changes. Pick up hitchhikers to earn money, spend it on jerry cans, and keep an eye on the fuel. Fuel stations are far apart, filling up and pouring in a jerry can are both hands-on, and if you run dry with nothing in the boot, the journey's over. Photos you take go into a postcard album. Players can sign in so their progress follows them between devices, and the car has a touchscreen for playing your own Spotify.
 
-The game is plain HTML, CSS and JavaScript. Accounts, cloud saves and the leaderboard use a free Supabase project. Cloudflare just publishes the files.
+The game is plain HTML, CSS and JavaScript, plus one small server file (`worker.js`) that runs on Cloudflare. It handles accounts, cloud saves and the leaderboard, and keeps them in Cloudflare's own storage. There's no Supabase or any other outside service.
 
 ## Files
 
@@ -14,11 +14,9 @@ favicon.svg, icons/    icons
 css/style.css          all the styling
 js/game.js             the game itself
 js/audio.js            engine sounds, road, rain and the car radio
-js/account.js          sign-in, cloud saves and the leaderboard (talks to Supabase)
-js/supabase-config.js  where your Supabase URL and key go
+js/account.js          sign-in, cloud saves and the leaderboard (talks to worker.js)
 js/leaderboard.js      the leaderboard page
 leaderboard.html       furthest journeys
-supabase-setup.sql     paste into Supabase's SQL Editor once
 js/spotify.js          plays a pasted Spotify link
 js/spotify-account.js  links a Spotify account
 js/spotify-config.js   where your Spotify Client ID goes
@@ -26,8 +24,9 @@ js/carscreen.js        the in-car touchscreen for music
 js/minigames.js        the roadside-job minigames
 js/shared.js           saving on the device
 js/album.js            the album page
-wrangler.jsonc         Cloudflare settings
-.assetsignore          keeps the README, the SQL file and settings out of the public site
+worker.js              runs on Cloudflare: serves the game and stores accounts, saves and the leaderboard
+wrangler.jsonc         Cloudflare settings, including the storage
+.assetsignore          keeps the README, worker.js and settings out of the public site
 ```
 
 ## Controls
@@ -106,7 +105,7 @@ The game detects which you're on and adjusts:
 - **Phones and tablets** get on-screen buttons and touch-sized settings. They draw at a lower resolution to save battery, show less rain, and keep the screen on while you drive. Turned sideways, the road moves up out of the way of the buttons. Settings → Display has a **Battery saver** option for older phones. On iPhone, use Share → Add to Home Screen to play full screen like an app. On Android, the full-screen option is in Settings.
 - **Computers** get keyboard and controller support, sharper graphics, a bigger HUD on large screens, a mouse pointer that hides while you drive, and F for full screen.
 
-## Accounts and the leaderboard (Supabase)
+## Accounts and the leaderboard
 
 Progress always saves on the device first. When a player signs in (Settings → Account), their journey, distance, settings and postcards are also saved to their account:
 - once a minute while driving
@@ -115,27 +114,25 @@ Progress always saves on the device first. When a player signs in (Settings → 
 
 Signing in on another phone or computer picks up where they left off. Their furthest single journey goes on the **leaderboard**. Anyone can view the leaderboard, signed in or not: in the game (Car screen → Leaderboard), on the game-over screen, or as its own page at `yoursite/leaderboard.html`. Only signed-in players appear on it.
 
-Accounts are just a username and password, with no email address anywhere. The game keeps its own usernames and passwords in your Supabase database, and passwords are stored scrambled (bcrypt), never as plain text. It doesn't use Supabase's Authentication section at all. A forgotten password can't be reset, and the game tells players this.
+Accounts are just a username and password, with no email address anywhere. Everything is stored in your Cloudflare project by `worker.js`, using a Durable Object, which is Cloudflare's small built-in database. Passwords are stored scrambled, never as plain text. A forgotten password can't be reset, and the game tells players this.
 
-### One-time setup (about 5 minutes)
+### Setup
 
-1. Go to **supabase.com** and sign in, then click **New project**. Any name and region will do. Note the database password somewhere, though the game doesn't need it.
-2. When the project is ready, go to **SQL Editor → New query**. Open `supabase-setup.sql` from this folder, paste in the whole file and click **Run**. It creates the tables, the leaderboard and the security rules. If you set up an older version of Lost Roads before, run the new file anyway. It adds what's new and leaves the old tables alone.
-3. Nothing to do in **Authentication**. The game doesn't use Supabase's email sign-in, so its settings don't matter.
-4. Go to **Project Settings → API** (or **Data API / API Keys**). Copy the **Project URL** and the **anon public** key. If you see "publishable key" instead, use that.
-5. On GitHub, open `js/supabase-config.js`, click the pencil icon and paste them in:
-   ```js
-   window.SUPABASE_CONFIG = {
-     url: 'https://abcdefghijklm.supabase.co',
-     anonKey: 'eyJhbGciOi...'
-   };
-   ```
-   Commit, and Cloudflare republishes automatically.
-6. Test it: open the game, press Esc, and create an account under **Account**. Then open `leaderboard.html` on your site.
+There's nothing to set up. The first time the site deploys as a **Worker** with the deploy command `npx wrangler deploy`, Cloudflare creates the storage automatically. It's included in Cloudflare's free plan.
 
-Both values in `supabase-config.js` are designed to be public. The tables are locked so nobody can read them directly. The website can only use the game's own functions, and those only let each player read and change their own saves and postcards. Everyone can see the leaderboard, which only shows usernames and distances.
+Accounts only work when the project is a **Worker**. A **Pages** project only publishes the files, so the game would say "Accounts aren't switched on for this site yet". Everything else still works.
 
-**About cheating:** distances are reported by the player's own browser, so a determined person could fake a score. For a game among friends that's normally fine. If someone does it, delete their row in Supabase under **Table Editor → lr_players**.
+Two things to check if the deploy fails:
+- **Worker name:** the `"name"` in `wrangler.jsonc` is `lost-roads`. If your Worker in Cloudflare has a different name, change it in `wrangler.jsonc` to match, or Cloudflare may refuse the build.
+- **Build log:** if the log mentions Durable Objects, make sure you're on Cloudflare's current free plan for Workers, which includes them.
+
+### Looking after it
+
+The data lives in the Durable Object `LostRoadsDB`, in the tables `players`, `sessions`, `saves` and `cards`. You can find it in Cloudflare under your Worker's Durable Objects section.
+
+**About cheating:** distances are reported by the player's own browser, so a determined person could fake a score. For a game among friends that's normally fine. If someone does it, ask me (or whoever maintains the game) to add a way to remove a score.
+
+**Moving from Supabase:** accounts made with the older Supabase version don't carry over, so players make a new account once. Their progress on each device is kept, and it uploads to the new account when they sign in.
 
 ## Music
 
@@ -173,7 +170,7 @@ Spotify requires each website to register as an "app" before people can sign in 
 
 ## Publish on Cloudflare
 
-Either kind of Cloudflare project works, because the site is just files.
+Use a **Worker** project. A Pages project would show the game but not the accounts or the leaderboard (see Accounts above).
 
 **Worker** (the newer screen with a "Deploy command" box):
 1. Go to **Workers & Pages → Create → Import a repository** and pick the repo.
@@ -202,7 +199,7 @@ Money, cans and seats are set near the top of the journey section in `js/game.js
 
 ## Checking an update went live
 
-The start screen shows the version number (for example "Version 12"). If you still see an older number after uploading:
+The start screen shows the version number (for example "Version 13"). If you still see an older number after uploading:
 
 1. Make sure the files went into the **top level** of the GitHub repo, replacing the old ones. `index.html` should sit next to the `js` and `css` folders, not inside a `lost-roads` folder.
 2. In Cloudflare, open the project's Deployments and check that the newest commit has built successfully.

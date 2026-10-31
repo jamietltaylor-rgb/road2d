@@ -13,7 +13,9 @@
   const PLACE_EVERY = 1500;      // metres between village signs
   const STATION_EVERY = 2400;    // metres between fuel stops
   const STATION_OFFSET = 1300;
-  const MAX_V = 30;              // metres per second (about 108 km/h)
+  const MAX_V = 30;              // metres per second (about 67 mph)
+  const MILE = 1609.344;         // metres in a mile
+  const MPH = 2.23694;           // metres per second -> miles per hour
   const DAY_SECONDS = 540;       // one full day takes nine minutes
   const FUEL_RANGE = 3600;       // metres on a full tank
 
@@ -188,7 +190,7 @@
   const saved = LR.load(LR.KEYS.journey, null);
   const stats = LR.load(LR.KEYS.stats, { metres: 0 });
   const settings = Object.assign(
-    { muted: false, radio: false, radioSource: 'builtin', engine: 'petrol', engineVol: 0.8, radioVol: 0.8, spotifyUri: '', lowPower: false },
+    { muted: false, radio: false, radioSource: 'builtin', engine: 'petrol', engineVol: 0.8, radioVol: 0.8, spotifyUri: '', lowPower: false, rainStyle: 'patter', rainVol: 0.8 },
     LR.load(LR.KEYS.settings, {})
   );
 
@@ -206,7 +208,10 @@
     seed: saved && saved.seed ? saved.seed : (Math.random() * 1e6) | 0,
     money: saved && typeof saved.money === 'number' ? saved.money : 5,
     cans: saved && Array.isArray(saved.cans) ? saved.cans : [],
-    passenger: saved && saved.passenger ? saved.passenger : null,
+    passengers: saved && Array.isArray(saved.passengers) ? saved.passengers : saved && saved.passenger ? [saved.passenger] : [],
+    seats: saved && saved.seats ? saved.seats : 1,
+    stuck: saved && saved.stuck != null ? saved.stuck : null,
+    flat: saved ? !!saved.flat : false,
     done: new Set(saved && saved.done ? saved.done : []),
     carried: saved ? saved.carried || 0 : 0,
     earned: saved ? saved.earned || 0 : 0,
@@ -573,7 +578,7 @@
     ctx.textBaseline = 'alphabetic';
   }
 
-  // Fuel stops are unevenly spaced, and now and then one is closed.
+  // Fuel stops are unevenly spaced (and they are all open).
   // The first few are always open and close together so a new journey can get going.
   let stationList = [], stationSeed = null;
   function ensureStations(m) {
@@ -583,7 +588,8 @@
       const prev = stationList[n - 1];
       const r = hash2(n, 500 + state.seed * 7), r2 = hash2(n, 900 + state.seed * 7);
       const gap = n < 4 ? 1500 + r * 900 : 1600 + r * 2300;
-      const closed = n >= 4 && r2 < 0.17 && !prev.closed;
+      const closed = false;   // every station is open
+      void r2;
       stationList.push({ m: prev.m + gap, closed });
     }
   }
@@ -684,7 +690,9 @@
   // ---------------------------------------------------------------------------
   // The journey: hitchhikers, things on the road, money and jerry cans
   // ---------------------------------------------------------------------------
-  const CAN_PRICE = 20, CAN_FUEL = 35, MAX_CANS = 3;
+  const CAN_PRICE = 20, CAN_FUEL = 60, MAX_CANS = 3;
+  const SEAT_PRICES = { 2: 40, 3: 90 };   // price of the 2nd and 3rd passenger seat
+  const MAX_SEATS = 3;
   const NAMES = ['Margaret', 'Tom', 'Priya', 'Ewan', 'Aled', 'Ruth', 'Kwame', 'Isla', 'Dougie', 'Mei', 'Frank', 'Niamh', 'Owen', 'Sadie', 'Bill', 'Ada', 'Jonah', 'Elsie', 'Rafi', 'Bryony'];
   const COATS = ['#7c4b3a', '#3f5a6b', '#8a7a3c', '#4d6146', '#6b4a68', '#2f3b46', '#9a6b3f', '#5a5f66', '#8b3a2f'];
   const CHAT = [
@@ -721,7 +729,8 @@
       const near = Math.abs(stationWorldX(stationIndexNear(m)) / PXM - m) < 140 || Math.abs((Math.round(m / PLACE_EVERY) * PLACE_EVERY) - m) < 60;
       if (!near) {
         const p = r(2);
-        let kind = p < 0.4 ? 'hitch' : p < 0.52 ? 'sheep' : p < 0.62 ? 'tree' : p < 0.74 ? 'cash' : p < 0.86 ? 'view' : 'deer';
+        let kind = p < 0.34 ? 'hitch' : p < 0.44 ? 'sheep' : p < 0.53 ? 'tree' : p < 0.6 ? 'rocks' : p < 0.67 ? 'mud' : p < 0.73 ? 'glass'
+          : p < 0.82 ? 'cash' : p < 0.92 ? 'view' : 'deer';
         if (spots.length === 0) kind = 'hitch';
         spots.push({ id: k, m, kind, r: r(3), r2: r(4), r3: r(5) });
       }
@@ -753,12 +762,11 @@
     toast(msg);
   }
 
-  function dropOff(missed) {
-    const p = state.passenger;
+  function dropOff(p, missed) {
     const fare = fareFor(p.from, p.dest);
     const tip = missed ? 0 : Math.floor(Math.random() * 5);
     const pay = missed ? Math.ceil(fare / 2) : fare + tip;
-    state.passenger = null;
+    state.passengers = state.passengers.filter((x) => x !== p);
     state.carried++;
     if (missed) caption(`${p.name}: Ah, that was my stop back there. Never mind, I’ll walk. Here’s something for the petrol.`);
     else caption(`${p.name}: ${THANKS[Math.floor(Math.random() * THANKS.length)]} Here’s £${pay}${tip ? ', and a bit extra' : ''}.`);
@@ -779,22 +787,226 @@
     RoadAudio.chime();
     toast(`Bought a jerry can and filled it (−£${CAN_PRICE})`);
   }
-  function useCan(auto) {
+  function carStyle() {
+    if (!settings.car) settings.car = { paint: 'oxide', shape: 'estate' };
+    return settings.car;
+  }
+  function owned() {
+    if (!stats.owned) stats.owned = { paints: ['oxide'], shapes: ['estate'] };
+    return stats.owned;
+  }
+  function pickStyle(kind, id, price, name) {
+    const o = owned();
+    const list = kind === 'paint' ? o.paints : o.shapes;
+    if (!list.includes(id)) {
+      if (state.money < price) { toast(`That costs \u00a3${price}. Pick up a few more hitchhikers.`); return; }
+      state.money -= price;
+      list.push(id);
+      RoadAudio.chime();
+      toast(kind === 'paint' ? `Resprayed in ${name} (\u2212\u00a3${price})` : `Your car is now a ${name.toLowerCase()} (\u2212\u00a3${price})`);
+    } else {
+      toast(kind === 'paint' ? `Switched to ${name}` : `Switched to the ${name.toLowerCase()}`);
+    }
+    if (kind === 'paint') carStyle().paint = id; else carStyle().shape = id;
+    saveSettings();
+    LR.save(LR.KEYS.stats, stats);
+    persist(true);
+  }
+
+  // ---- the garage at open fuel stations ----
+  function garageOpen() { return ui.garage.classList.contains('open'); }
+  function openGarage() {
+    if (!atOpenStation(state.cam + carX) || state.v > 1.5) { toast('The garage is at the fuel station. Stop there to go in.'); return; }
+    state.v = 0;
+    input.go = input.brake = false;
+    renderGarage();
+    ui.garage.classList.add('open');
+    ui.garage.setAttribute('aria-hidden', 'false');
+  }
+  function closeGarage() {
+    ui.garage.classList.remove('open');
+    ui.garage.setAttribute('aria-hidden', 'true');
+    if (document.activeElement) document.activeElement.blur();
+  }
+  function renderGarage() {
+    ui.garageMoney.textContent = `\u00a3${state.money}`;
+    const items = [];
+    const cansFull = state.cans.filter(Boolean).length;
+    items.push({
+      name: 'Jerry can',
+      desc: `Holds ${CAN_FUEL}% of a tank. Comes full, and refills whenever you fill up at a pump. Stop the car to pour it in. You have ${state.cans.length} of ${MAX_CANS}${state.cans.length ? ` (${cansFull} full)` : ''}.`,
+      price: CAN_PRICE,
+      can: state.cans.length < MAX_CANS,
+      why: 'The boot is full',
+      buy: buyCan
+    });
+    const nextSeat = state.seats + 1;
+    items.push({
+      name: nextSeat === 2 ? 'Fold-down back seat' : 'Bench seat in the boot',
+      desc: state.seats >= MAX_SEATS
+        ? `All ${MAX_SEATS} passenger seats fitted.`
+        : `Carry ${nextSeat} hitchhikers at once instead of ${state.seats}. More passengers, more fares.`,
+      price: SEAT_PRICES[nextSeat] || 0,
+      can: state.seats < MAX_SEATS,
+      why: 'Fully fitted',
+      buy: buySeat
+    });
+    ui.garageList.innerHTML = '';
+    const heading = (t) => { const h = document.createElement('p'); h.className = 'g-section'; h.textContent = t; ui.garageList.appendChild(h); };
+    heading('Supplies and seats');
+    for (const it of items) {
+      const row = document.createElement('div');
+      row.className = 'g-item';
+      const text = document.createElement('div');
+      const n = document.createElement('p'); n.className = 'g-name'; n.textContent = it.name;
+      const d = document.createElement('p'); d.className = 'g-desc'; d.textContent = it.desc;
+      text.append(n, d);
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'g-buy';
+      if (!it.can) { b.textContent = it.why; b.disabled = true; }
+      else if (state.money < it.price) { b.textContent = `\u00a3${it.price}`; b.disabled = true; b.title = 'Not enough money yet'; }
+      else b.textContent = `Buy \u00a3${it.price}`;
+      b.addEventListener('click', () => { it.buy(); renderGarage(); });
+      row.append(text, b);
+      ui.garageList.appendChild(row);
+    }
+
+    // paint
+    heading('Paint');
+    const sw = document.createElement('div');
+    sw.className = 'g-swatches';
+    for (const pnt of PAINTS) {
+      const have = owned().paints.includes(pnt.id);
+      const using = carStyle().paint === pnt.id;
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'g-swatch' + (using ? ' using' : '');
+      b.innerHTML = `<i style="background:${pnt.hex}"></i><span>${pnt.name}</span><em>${using ? 'Your car' : have ? 'Owned' : '\u00a3' + pnt.price}</em>`;
+      b.disabled = using || (!have && state.money < pnt.price);
+      b.addEventListener('click', () => { pickStyle('paint', pnt.id, pnt.price, pnt.name); renderGarage(); });
+      sw.appendChild(b);
+    }
+    ui.garageList.appendChild(sw);
+
+    // body
+    heading('Body');
+    for (const [id, sh] of Object.entries(SHAPES)) {
+      const have = owned().shapes.includes(id);
+      const using = carStyle().shape === id;
+      const row = document.createElement('div');
+      row.className = 'g-item';
+      const text = document.createElement('div');
+      const n = document.createElement('p'); n.className = 'g-name'; n.textContent = sh.name;
+      const d = document.createElement('p'); d.className = 'g-desc'; d.textContent = sh.desc;
+      text.append(n, d);
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'g-buy';
+      if (using) { b.textContent = 'Your car'; b.disabled = true; }
+      else if (have) b.textContent = 'Switch';
+      else { b.textContent = `Buy \u00a3${sh.price}`; b.disabled = state.money < sh.price; }
+      b.addEventListener('click', () => { pickStyle('shape', id, sh.price, sh.name); renderGarage(); });
+      row.append(text, b);
+      ui.garageList.appendChild(row);
+    }
+    ui.garageList.appendChild(Object.assign(document.createElement('p'), { className: 'g-note', textContent: 'Paint and bodies you buy are yours to keep, even after a new journey.' }));
+  }
+  function buySeat() {
+    const next = state.seats + 1;
+    const price = SEAT_PRICES[next];
+    if (!price || state.money < price) return;
+    state.money -= price;
+    state.seats = next;
+    RoadAudio.chime();
+    toast(`Fitted a new seat. You can now carry ${state.seats} hitchhikers.`);
+    persist(true);
+  }
+
+  function useCan() {
     const i = state.cans.indexOf(true);
-    if (i < 0) { if (!auto) toast(state.cans.length ? 'Your jerry cans are empty. Fill them at a fuel station.' : 'You don’t have a jerry can. Buy one at a fuel station.'); return false; }
-    if (state.fuel > 97 && !auto) { toast('Your tank is already full.'); return false; }
-    state.cans[i] = false;
-    state.fuel = Math.min(100, state.fuel + CAN_FUEL);
-    RoadAudio.glug();
-    toast(auto ? 'The engine coughed, so you emptied a jerry can into the tank.' : 'You poured a jerry can into the tank.');
+    if (i < 0) { toast(state.cans.length ? 'Your jerry cans are empty. Fill them at a fuel station.' : 'You don’t have a jerry can. Buy one at the garage.'); return false; }
+    if (state.v > 0.5) { toast('Stop the car first, then you can pour in the jerry can.'); return false; }
+    if (state.fuel > 97) { toast('Your tank is already full.'); return false; }
+    state.cruise = false;
+    input.go = input.brake = false;
+    Minigames.open('can', {
+      data: { amount: CAN_FUEL, fuel: state.fuel },
+      onWin: (r) => {
+        state.cans[i] = false;
+        state.fuel = Math.min(100, state.fuel + r.added);
+        toast(r.spilled > 3 ? `Can emptied, though you spilt about ${Math.round(r.spilled)}% on the road.` : 'You poured the whole can in without spilling a drop.');
+        persist(true);
+      }
+    });
     return true;
   }
+
+  function fillUp() {
+    const carW = state.cam + carX;
+    if (!atOpenStation(carW)) return;
+    if (state.v > 0.5) { toast('Stop at the pump first.'); return; }
+    if (state.fuel >= 96) { toast('Your tank is already full.'); return; }
+    input.go = input.brake = false;
+    state.cruise = false;
+    Minigames.open('pump', {
+      data: { fuel: state.fuel },
+      onWin: (r) => {
+        state.fuel = r.fuel;
+        const empties = state.cans.filter((c) => !c).length;
+        state.cans = state.cans.map(() => true);
+        let msg = r.spilled ? 'Full, but you splashed petrol down the side of the car.' : 'Filled up to the brim.';
+        if (empties) msg += ` You filled your jerry can${empties > 1 ? 's' : ''} too.`;
+        toast(msg);
+        persist(true);
+      },
+      onCancel: (r) => { if (r && r.fuel > state.fuel) { state.fuel = r.fuel; toast(`You stopped pumping at ${Math.round(r.fuel)}%.`); } }
+    });
+  }
+
   function honk() {
     RoadAudio.horn();
     const carW = state.cam + carX;
-    for (const sp of spots) {
-      if (sp.kind === 'sheep' && sp.m * PXM > carW && sp.m * PXM - carW < 600) (ev[sp.id] || (ev[sp.id] = { wait: 0, t: -1 })).honked = true;
+    if (spots.some((sp) => sp.kind === 'sheep' && !state.done.has(sp.id) && sp.m * PXM > carW && sp.m * PXM - carW < 600)) {
+      setTimeout(() => RoadAudio.baa(), 350);
+      toast('The sheep just stare at you. You\u2019ll have to shoo them yourself.');
     }
+  }
+
+  // ---- roadside jobs (minigames) ----
+  const BLOCKERS = { sheep: 80, tree: 40, rocks: 50 };
+  function blockerAhead(carW) {
+    for (const sp of spots) {
+      if (!(sp.kind in BLOCKERS) || state.done.has(sp.id)) continue;
+      const start = sp.m * PXM - BLOCKERS[sp.kind];
+      const gap = start - (carW + 62);
+      if (gap > -20 && gap < 360) return sp;
+    }
+    return null;
+  }
+  function startJob(kind, onDone, doneMsg, payMsg) {
+    state.v = 0;
+    state.cruise = false;
+    input.go = input.brake = false;
+    Minigames.open(kind, {
+      money: state.money,
+      onWin: () => { onDone(); toast(doneMsg); persist(true); },
+      onPay: (cost) => { state.money = Math.max(0, state.money - cost); onDone(); toast(payMsg(cost)); persist(true); }
+    });
+  }
+  function clearBlocker(sp) {
+    const msgs = {
+      tree: ['You cut the tree up and dragged it clear.', (c) => `A farmer turns up with a tractor and clears it (\u2212\u00a3${c}).`],
+      rocks: ['You rolled the rocks off the road.', (c) => `A farmer clears the rocks with his loader (\u2212\u00a3${c}).`],
+      sheep: ['The road\u2019s clear. The sheep look unimpressed.', (c) => `The farmer whistles and the sheep trot off (\u2212\u00a3${c}).`]
+    }[sp.kind];
+    startJob(sp.kind, () => { state.done.add(sp.id); (ev[sp.id] || (ev[sp.id] = {})).t = state.time; }, msgs[0], msgs[1]);
+  }
+  function getUnstuck() {
+    startJob('mud', () => { state.stuck = null; state.v = 2.5; }, 'You rocked the car free of the mud.', (c) => `A tractor tows you out of the mud (\u2212\u00a3${c}).`);
+  }
+  function changeTyre() {
+    startJob('tyre', () => { state.flat = false; }, 'Spare wheel on. Off you go.', (c) => `Roadside recovery fits a new tyre (\u2212\u00a3${c}).`);
   }
 
   function updateJourney(dt, carW) {
@@ -808,31 +1020,43 @@
       const e = ev[sp.id] || (ev[sp.id] = { wait: 0, t: -1 });
       if (state.done.has(sp.id)) continue;
       if (sp.kind === 'hitch') {
-        if (!state.passenger && Math.abs(x - carW) < 80 && state.v < 1.5) {
+        if (state.passengers.length < state.seats && Math.abs(x - carW) < 80 && state.v < 1.5) {
           const h = hitchInfo(sp);
-          state.passenger = { name: h.name, dest: h.dest, from: sp.m, coat: h.coat };
+          state.passengers.push({ name: h.name, dest: h.dest, from: sp.m, coat: h.coat });
           state.done.add(sp.id);
           state.chatT = 30 + Math.random() * 20;
           caption(`${h.name}: Thanks for stopping. Could you take me as far as ${placeName(h.dest)}? I’ll pay you £${fareFor(sp.m, h.dest)}.`);
         }
-      } else if (sp.kind === 'sheep' || sp.kind === 'tree') {
-        const start = x - (sp.kind === 'sheep' ? 80 : 40);
-        if (front > start && front < start + 200) {
+      } else if (sp.kind in BLOCKERS) {
+        const start = x - BLOCKERS[sp.kind];
+        if (front > start && front < start + 220) {
           if (state.v > 3) {
             RoadAudio.bump();
-            if (sp.kind === 'sheep') charge(10, 'You clipped a sheep. The farmer wants £10 for the vet.');
-            else charge(15, 'You hit the fallen tree. Fixing the bumper costs £15.');
+            if (sp.kind === 'sheep') charge(10, 'You clipped a sheep. The farmer wants \u00a310 for the vet.');
+            else if (sp.kind === 'tree') charge(15, 'You hit the fallen tree. Fixing the bumper costs \u00a315.');
+            else charge(15, 'You hit a rock. Fixing the bumper costs \u00a315.');
           }
           state.v = 0;
           state.cruise = false;
           state.cam = start - 62 - carX;
         }
-        const gap = start - (state.cam + carX + 62);
-        if (gap < 340 && gap > -20 && state.v < 0.5) e.wait += dt;
-        if (e.wait > (sp.kind === 'sheep' ? 3 : 4.5) || (sp.kind === 'sheep' && e.honked && gap < 600)) {
-          e.t = state.time;
+      } else if (sp.kind === 'mud') {
+        if (carW > x - 10 && state.stuck == null) {
           state.done.add(sp.id);
-          toast(sp.kind === 'sheep' ? 'The sheep amble off the road.' : 'A farmer drags the tree clear with his tractor.');
+          state.stuck = sp.id;
+          state.v = 0;
+          state.cruise = false;
+          toast('The wheels sink into a patch of deep mud. You\u2019re stuck.');
+        }
+      } else if (sp.kind === 'glass') {
+        if (carW > x) {
+          state.done.add(sp.id);
+          if (state.v > 4 && !state.flat) {
+            state.flat = true;
+            state.cruise = false;
+            RoadAudio.bump();
+            toast('Bang. Something sharp on the road: you\u2019ve got a puncture.');
+          }
         }
       } else if (sp.kind === 'cash') {
         if (carW > x) {
@@ -851,16 +1075,18 @@
       }
     }
 
-    const p = state.passenger;
-    if (p) {
+    if (state.passengers.length) {
       state.chatT -= dt;
       if (state.chatT <= 0 && state.v > 2) {
+        const p = state.passengers[Math.floor(Math.random() * state.passengers.length)];
         caption(`${p.name}: ${CHAT[Math.floor(Math.random() * CHAT.length)]}`);
         state.chatT = 50 + Math.random() * 40;
       }
-      const signX = p.dest * PLACE_EVERY * PXM - 60;
-      if (carW > signX - 240 && carW < signX + 300 * PXM && state.v < 1.5) dropOff(false);
-      else if (carW > signX + 300 * PXM) dropOff(true);
+      for (const p of state.passengers.slice()) {
+        const signX = p.dest * PLACE_EVERY * PXM - 60;
+        if (carW > signX - 240 && carW < signX + 300 * PXM && state.v < 1.5) dropOff(p, false);
+        else if (carW > signX + 300 * PXM) dropOff(p, true);
+      }
     }
   }
 
@@ -998,6 +1224,33 @@
         ctx.fill();
         ctx.restore();
         ctx.globalAlpha = 1;
+      } else if (sp.kind === 'rocks' && (!gone || (e.t >= 0 && since < 1.5))) {
+        const k = gone ? smooth(0, 1.5, since) : 0;
+        ctx.globalAlpha = 1 - k;
+        for (let i = 0; i < 6; i++) {
+          const ox = (hash2(i, sp.id + 7) - 0.5) * 90;
+          const r = 5 + hash2(i, sp.id + 8) * 9;
+          const y = roadY(sp.m * PXM + ox) + 9 - r * 0.6 - k * 30;
+          ctx.fillStyle = rgb(shade(hex(i % 2 ? '#7d7d77' : '#68695f')));
+          ctx.beginPath();
+          ctx.ellipse(x0 + ox, y, r * 1.2, r, 0, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        ctx.globalAlpha = 1;
+      } else if (sp.kind === 'mud') {
+        const base = roadY(sp.m * PXM) + 6;
+        ctx.fillStyle = rgb(shade(hex('#4a3826')));
+        ctx.beginPath();
+        ctx.ellipse(x0, base, 46, 7, 0, 0, Math.PI * 2);
+        ctx.ellipse(x0 + 30, base + 2, 22, 5, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = rgb(shade(mix(hex('#4a3826'), hex('#9aa3a3'), 0.35)), 0.6);
+        ctx.beginPath(); ctx.ellipse(x0 - 8, base - 1, 18, 2.2, 0, 0, Math.PI * 2); ctx.fill();
+      } else if (sp.kind === 'glass' && !gone) {
+        const base = roadY(sp.m * PXM) + 5;
+        const a = 0.35 + 0.35 * Math.sin(state.time * 6 + sp.id);
+        ctx.fillStyle = `rgba(220,232,236,${a})`;
+        for (let i = 0; i < 7; i++) ctx.fillRect(x0 + (hash2(i, sp.id) - 0.5) * 30, base + (hash2(i, sp.id + 1) - 0.5) * 4, 2.5, 1.5);
       } else if (sp.kind === 'deer' && e.t >= 0 && since < 1.5) {
         const k = since / 1.5;
         const x = x0 - 30 + k * 160;
@@ -1029,6 +1282,62 @@
   // ---------------------------------------------------------------------------
   // The car
   // ---------------------------------------------------------------------------
+  // ---------------------------------------------------------------------------
+  // Car shapes and paint (bought at the garage, kept for good once bought)
+  // ---------------------------------------------------------------------------
+  const PAINTS = [
+    { id: 'oxide', name: 'Oxide red', hex: '#7a3e30', price: 0 },
+    { id: 'green', name: 'Racing green', hex: '#2f4a3a', price: 15 },
+    { id: 'navy', name: 'Navy', hex: '#2c3a52', price: 15 },
+    { id: 'cream', name: 'Cream', hex: '#d3c8ad', price: 15 },
+    { id: 'mustard', name: 'Mustard', hex: '#b08a35', price: 15 },
+    { id: 'sky', name: 'Faded sky', hex: '#6c8ea3', price: 15 },
+    { id: 'charcoal', name: 'Charcoal', hex: '#34373b', price: 15 },
+    { id: 'plum', name: 'Plum', hex: '#5b3a4e', price: 15 }
+  ];
+  const poly = (pts) => {
+    ctx.moveTo(pts[0][0], pts[0][1]);
+    for (let i = 1; i < pts.length; i++) {
+      const p = pts[i];
+      if (p.length === 4) ctx.quadraticCurveTo(p[0], p[1], p[2], p[3]); else ctx.lineTo(p[0], p[1]);
+    }
+    ctx.closePath();
+  };
+  const NOSE = [[32, -30], [51, -27], [59, -26, 60, -19], [60, -10], [59, -5, 54, -5]];
+  const FRONT_WINDOW = [[-10, -30], [-10, -46], [12, -46], [16, -46, 18, -43], [27, -30]];
+  const SHAPES = {
+    estate: {
+      name: 'Estate', desc: 'The old faithful, with a roof rack.', price: 0,
+      body: [[-55, -5], [-58, -19], [-58, -27, -51, -27], [-45, -27], [-41, -46], [-40, -50, -35, -50], [13, -50], [18, -50, 21, -46], ...NOSE],
+      windows: [[[-39, -30], [-36, -46], [-14, -46], [-14, -30]], FRONT_WINDOW],
+      seats: [[-25, -38.5], [6, -38.5], [-33, -38.5]], rear: -58, rack: true, doors: true
+    },
+    hatch: {
+      name: 'Hatchback', desc: 'Shorter and nippier-looking.', price: 25,
+      body: [[-50, -5], [-52, -20], [-50, -28], [-38, -48], [-34, -50, -30, -50], [13, -50], [18, -50, 21, -46], ...NOSE],
+      windows: [[[-44, -30], [-35, -46], [-14, -46], [-14, -30]], FRONT_WINDOW],
+      seats: [[-24, -38.5], [6, -38.5], [-33, -36]], rear: -52, rack: false, doors: true
+    },
+    coupe: {
+      name: 'Coupé', desc: 'Low, sleek and a bit impractical.', price: 60,
+      body: [[-55, -5], [-58, -18], [-58, -25, -51, -26], [-28, -41], [-22, -44, -14, -44], [6, -44], [12, -44, 16, -40], [30, -28], [51, -25], [59, -24, 60, -17], [60, -10], [59, -5, 54, -5]],
+      windows: [[[-36, -29], [-26, -38], [-14, -40], [-14, -29]], [[-10, -29], [-10, -40], [6, -40], [10, -40, 13, -37], [24, -29]]],
+      seats: [[-22, -34], [4, -34], [-28, -33]], rear: -58, rack: false, doors: true
+    },
+    pickup: {
+      name: 'Pickup', desc: 'Open back. Hitchhikers can ride in the bed.', price: 45,
+      body: [[-58, -5], [-60, -27], [-12, -27], [-10, -48], [-6, -50], [13, -50], [18, -50, 21, -46], ...NOSE],
+      windows: [[[-7, -30], [-5, -46], [12, -46], [16, -46, 18, -43], [27, -30]]],
+      seats: [[4, -38.5], [-42, -31], [-26, -31]], rear: -60, rack: false, doors: false, bed: true
+    },
+    van: {
+      name: 'Camper van', desc: 'Tall, roomy and slow-looking.', price: 70,
+      body: [[-58, -5], [-59, -62], [-59, -66, -54, -66], [20, -66], [26, -66, 28, -60], [36, -34], [51, -29], [59, -27, 60, -19], [60, -10], [59, -5, 54, -5]],
+      windows: [[[-53, -58], [-36, -58], [-36, -44], [-53, -44]], [[-31, -58], [-14, -58], [-14, -44], [-31, -44]], [[-9, -58], [10, -58], [10, -44], [-9, -44]], [[14, -58], [22, -58], [31, -38], [14, -38]]],
+      seats: [[-44, -48], [0, -48], [-22, -48]], rear: -59, rack: false, doors: false, stripe: true, roofbox: true
+    }
+  };
+
   function drawCar(cx, cy, angle, wheelRot, c) {
     ctx.save();
     ctx.translate(cx, cy);
@@ -1038,35 +1347,24 @@
     ctx.fillStyle = rgb(c.under);
     for (const wx of [-34, 34]) { ctx.beginPath(); ctx.arc(wx, 0, 13.5, 0, Math.PI * 2); ctx.fill(); }
 
+    const S = SHAPES[c.shape] || SHAPES.estate;
+
     // body
     ctx.beginPath();
-    ctx.moveTo(-55, -5);
-    ctx.lineTo(-58, -19);
-    ctx.quadraticCurveTo(-58, -27, -51, -27);
-    ctx.lineTo(-45, -27);
-    ctx.lineTo(-41, -46);
-    ctx.quadraticCurveTo(-40, -50, -35, -50);
-    ctx.lineTo(13, -50);
-    ctx.quadraticCurveTo(18, -50, 21, -46);
-    ctx.lineTo(32, -30);
-    ctx.lineTo(51, -27);
-    ctx.quadraticCurveTo(59, -26, 60, -19);
-    ctx.lineTo(60, -10);
-    ctx.quadraticCurveTo(59, -5, 54, -5);
-    ctx.closePath();
+    poly(S.body);
     ctx.fillStyle = rgb(c.body);
     ctx.fill();
 
     // lower shading
     ctx.fillStyle = rgb(c.shade);
+    ctx.fillRect(S.rear + 1, -14, 60 - S.rear - 1, 6);
     ctx.beginPath();
-    ctx.moveTo(-56, -14);
-    ctx.lineTo(60, -14);
-    ctx.lineTo(60, -10);
-    ctx.quadraticCurveTo(59, -5, 54, -5);
-    ctx.lineTo(-55, -5);
-    ctx.closePath();
+    ctx.moveTo(S.rear + 2, -8); ctx.lineTo(60, -8); ctx.quadraticCurveTo(59, -5, 54, -5); ctx.lineTo(S.rear + 3, -5); ctx.closePath();
     ctx.fill();
+    if (S.stripe) {
+      ctx.fillStyle = rgb(c.trim, 0.85);
+      ctx.fillRect(S.rear + 1, -34, 60 - S.rear - 4, 5);
+    }
 
     // re-cut the wheel arches over the body
     ctx.fillStyle = rgb(c.under);
@@ -1080,61 +1378,73 @@
     // windows
     ctx.fillStyle = rgb(c.glass);
     ctx.beginPath();
-    ctx.moveTo(-39, -30); ctx.lineTo(-36, -46); ctx.lineTo(-14, -46); ctx.lineTo(-14, -30); ctx.closePath();
-    ctx.moveTo(-10, -30); ctx.lineTo(-10, -46); ctx.lineTo(12, -46); ctx.quadraticCurveTo(16, -46, 18, -43); ctx.lineTo(27, -30); ctx.closePath();
+    S.windows.forEach(poly);
     ctx.fill();
-    // soft reflection
-    ctx.strokeStyle = rgb(c.trim, 0.35);
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(-30, -44); ctx.lineTo(-34, -32);
-    ctx.moveTo(4, -44); ctx.lineTo(0, -32);
-    ctx.stroke();
 
-    // a passenger in the back
-    if (c.passenger) {
+    // pickup bed
+    if (S.bed) {
+      ctx.fillStyle = rgb(c.under, 0.7);
+      ctx.fillRect(S.rear + 2, -27, -12 - S.rear - 3, 2);
+      ctx.fillStyle = rgb(c.case);
+      ctx.fillRect(-52, -33, 14, 6);
+    }
+
+    // passengers
+    for (let i = 0; i < (c.riders || 0); i++) {
+      const [hx, hy] = S.seats[i];
       ctx.fillStyle = rgb(c.passenger, 0.85);
-      ctx.beginPath(); ctx.arc(-25, -38.5, 4.6, 0, Math.PI * 2); ctx.fill();
-      ctx.fillRect(-31, -34, 12, 4);
+      ctx.beginPath(); ctx.arc(hx, hy, 4.6, 0, Math.PI * 2); ctx.fill();
+      ctx.fillRect(hx - 6, hy + 4.5, 12, 4);
     }
 
     // trim and doors
     ctx.strokeStyle = rgb(c.trim, 0.55);
+    ctx.lineWidth = 1;
     ctx.beginPath();
-    ctx.moveTo(-57, -21); ctx.lineTo(59, -21);
+    ctx.moveTo(S.rear + 1, -21); ctx.lineTo(59, -21);
     ctx.stroke();
-    ctx.strokeStyle = rgb(c.shade, 0.9);
-    ctx.beginPath();
-    ctx.moveTo(-12, -29); ctx.lineTo(-12, -8);
-    ctx.moveTo(16, -29); ctx.lineTo(16, -8);
-    ctx.stroke();
+    if (S.doors) {
+      ctx.strokeStyle = rgb(c.shade, 0.9);
+      ctx.beginPath();
+      ctx.moveTo(-12, -29); ctx.lineTo(-12, -8);
+      ctx.moveTo(16, -29); ctx.lineTo(16, -8);
+      ctx.stroke();
+    }
 
     // bumpers
     ctx.fillStyle = rgb(c.trim);
-    ctx.fillRect(-61, -11, 7, 3);
+    ctx.fillRect(S.rear - 3, -11, 7, 3);
     ctx.fillRect(56, -11, 7, 3);
 
     // roof rack and luggage
-    ctx.fillStyle = rgb(c.under);
-    ctx.fillRect(-36, -53, 48, 1.6);
-    ctx.fillRect(-33, -53, 1.6, 3);
-    ctx.fillRect(8, -53, 1.6, 3);
-    ctx.fillStyle = rgb(c.case);
-    ctx.fillRect(-30, -63, 24, 10);
-    ctx.fillRect(-4, -60, 12, 7);
-    ctx.fillStyle = rgb(c.under, 0.6);
-    ctx.fillRect(-19, -63, 2, 10);
+    if (S.rack) {
+      ctx.fillStyle = rgb(c.under);
+      ctx.fillRect(-36, -53, 48, 1.6);
+      ctx.fillRect(-33, -53, 1.6, 3);
+      ctx.fillRect(8, -53, 1.6, 3);
+      ctx.fillStyle = rgb(c.case);
+      ctx.fillRect(-30, -63, 24, 10);
+      ctx.fillRect(-4, -60, 12, 7);
+      ctx.fillStyle = rgb(c.under, 0.6);
+      ctx.fillRect(-19, -63, 2, 10);
+    }
+    if (S.roofbox) {
+      ctx.fillStyle = rgb(c.under);
+      ctx.beginPath(); poly([[-44, -66], [-40, -73], [2, -73], [6, -66]]); ctx.fill();
+    }
 
     // lamps
     ctx.fillStyle = rgb(c.head);
     ctx.beginPath(); ctx.arc(57, -21, 2.6, 0, Math.PI * 2); ctx.fill();
     ctx.fillStyle = rgb(c.tail);
-    ctx.fillRect(-59, -24, 2.5, 6);
+    ctx.fillRect((SHAPES[c.shape] || SHAPES.estate).rear - 1, -24, 2.5, 6);
 
     // wheels
     for (const wx of [-34, 34]) {
       ctx.fillStyle = rgb(c.tyre);
-      ctx.beginPath(); ctx.arc(wx, 0, 11, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath();
+      if (c.flat && wx > 0) ctx.ellipse(wx, 2, 12.5, 9, 0, 0, Math.PI * 2); else ctx.arc(wx, 0, 11, 0, Math.PI * 2);
+      ctx.fill();
       ctx.fillStyle = rgb(c.hub);
       ctx.beginPath(); ctx.arc(wx, 0, 6, 0, Math.PI * 2); ctx.fill();
       ctx.strokeStyle = rgb(c.tyre, 0.8);
@@ -1305,7 +1615,7 @@
     // exhaust
     for (const p of particles) {
       const a = (1 - p.age / p.life) * 0.22;
-      ctx.fillStyle = rgb(mix(fog, hex('#ffffff'), 0.2), a);
+      ctx.fillStyle = p.mud ? rgb(shade(hex('#4a3826')), Math.min(1, a * 3)) : rgb(mix(fog, hex('#ffffff'), 0.2), a);
       ctx.beginPath();
       ctx.arc(p.x - state.cam, p.y, p.r, 0, Math.PI * 2);
       ctx.fill();
@@ -1318,7 +1628,13 @@
       carCols.head = mix(CAR.head, hex('#fff4d8'), lightsOn);
       carCols.tail = mix(CAR.tail, hex('#ff4a36'), lightsOn);
     }
-    carCols.passenger = state.passenger ? shade(hex('#1e1c1a')) : null;
+    const paint = PAINTS.find((x) => x.id === carStyle().paint) || PAINTS[0];
+    carCols.body = shade(hex(paint.hex));
+    carCols.shade = shade(mix(hex(paint.hex), hex('#000000'), 0.27));
+    carCols.shape = carStyle().shape;
+    carCols.passenger = shade(hex('#1e1c1a'));
+    carCols.riders = state.passengers.length;
+    carCols.flat = state.flat;
     drawCar(carX, cy, angle, carW / 11, carCols);
 
     // headlights cutting through the mist
@@ -1429,8 +1745,10 @@
     acctSave: $('acctSave'), acctSignOut: $('acctSignOut'), introAcct: $('introAcct'),
     fullscreen: $('fullscreenToggle'), lowPower: $('lowPower'),
     screenBtn: $('screenBtn'), money: $('money'), cans: $('cans'), nextFuel: $('nextFuel'), passenger: $('passenger'),
-    caption: $('caption'), gameover: $('gameover'), overBoard: $('overBoard'), overText: $('overText'), overStats: $('overStats'), restart: $('restartBtn'),
-    actionBtn: document.querySelector('#touch [data-act="action"]'), accountRadioBox: $('accountRadioBox'), spAcctText: $('spAcctText'),
+    caption: $('caption'), gameover: $('gameover'), overBoard: $('overBoard'),
+    garage: $('garage'), garageList: $('garageList'), garageMoney: $('garageMoney'), garageClose: $('garageClose'), overText: $('overText'), overStats: $('overStats'), restart: $('restartBtn'),
+    actionBtn: document.querySelector('#touch [data-act="action"]'),
+    action2Btn: document.querySelector('#touch [data-act="action2"]'), accountRadioBox: $('accountRadioBox'), spAcctText: $('spAcctText'),
     spOpenScreen: $('spOpenScreen'), spDisconnect: $('spDisconnect')
   };
 
@@ -1448,8 +1766,10 @@
   }
 
   let hudTimer = 0;
-  let action = null;
+  let action = null, action2 = null;
   function runAction() { if (action) action.run(); }
+  function runAction2() { if (action2) action2.run(); }
+  window.__lrAction = () => action;
   function updateHud(info, dt) {
     hudTimer -= dt;
     if (hudTimer > 0) return;
@@ -1464,8 +1784,8 @@
       ui.place.classList.add('show');
     }
     ui.region.textContent = `${info.pal.name} · ${clockText(state.tod)}`;
-    ui.km.textContent = `${(info.distM / 1000).toFixed(1)} km`;
-    ui.speed.textContent = `${Math.round(state.v * 3.6)} km/h`;
+    ui.km.textContent = `${(stats.metres / MILE).toFixed(1)} miles`;
+    ui.speed.textContent = `${Math.round(state.v * MPH)} mph`;
     ui.speedLabel.textContent = state.cruise ? 'Cruise' : 'Speed';
     const cb = document.querySelector('#touch [data-act="cruise"]');
     if (cb) cb.classList.toggle('on', state.cruise);
@@ -1481,8 +1801,10 @@
     }
     if (ui.cans.innerHTML !== cansHtml) ui.cans.innerHTML = cansHtml;
     const nextWx = nextStationAfter(info.carW + 100);
-    ui.nextFuel.textContent = `next fuel ${((nextWx - info.carW) / PXM / 1000).toFixed(1)} km`;
-    ui.passenger.textContent = state.passenger ? `Passenger: ${state.passenger.name}, to ${placeName(state.passenger.dest)}` : '';
+    ui.nextFuel.textContent = `next fuel ${((nextWx - info.carW) / PXM / MILE).toFixed(1)} mi`;
+    ui.passenger.textContent = state.passengers.length
+      ? `${state.passengers.length > 1 ? 'Passengers' : 'Passenger'}: ${state.passengers.map((p) => `${p.name} (${placeName(p.dest)})`).join(', ')} · ${state.seats} seat${state.seats > 1 ? 's' : ''}`
+      : (state.seats > 1 ? `${state.seats} passenger seats` : '');
 
     const touch = IS_TOUCH;
     const stInfo = nearestStationInfo(info.carW);
@@ -1490,6 +1812,7 @@
     const gap = (stInfo.wx - info.carW) / PXM;
     let msg = '';
     action = null;
+    action2 = null;
     const fullCan = state.cans.includes(true);
 
     // what's on the road just ahead?
@@ -1498,40 +1821,132 @@
       const d = (sp.m * PXM - info.carW);
       if (d < -90) continue;
       if (d > 520) break;
-      if (!state.done.has(sp.id) && sp.kind !== 'cash' && sp.kind !== 'deer') { ahead = { sp, d }; break; }
+      if (!state.done.has(sp.id) && sp.kind !== 'cash' && sp.kind !== 'deer' && sp.kind !== 'glass') { ahead = { sp, d }; break; }
       if (sp.kind === 'view' && state.done.has(sp.id)) continue;
     }
 
+    const key = (k, t) => (touch ? `Tap ${t}` : `Press ${k}`);
+    const blocker = blockerAhead(info.carW);
+    const leaving = state.passengers.find((p) => info.carW > p.dest * PLACE_EVERY * PXM - 700);
     if (state.over) msg = '';
+    else if (state.stuck != null) {
+      msg = `You’re stuck in the mud. ${key('E', 'Get unstuck')} to rock the car free.`;
+      action = { label: 'Get unstuck', run: getUnstuck };
+    } else if (state.flat && state.v < 0.5) {
+      msg = `Flat tyre. ${key('E', 'Change tyre')} to fit the spare.`;
+      action = { label: 'Change tyre', run: changeTyre };
+    } else if (state.flat) msg = 'Flat tyre! Stop to change it.';
     else if (state.fuel <= 0 && !fullCan) msg = 'Out of fuel…';
-    else if (atSt && stInfo.closed) msg = 'This fuel station is closed. Hope you’ve got enough to reach the next one.';
-    else if (atSt && state.v < 1.5) {
-      const canBuy = state.cans.length < MAX_CANS;
-      msg = state.fuel < 99.5 ? `Filling up… ${Math.round(state.fuel)}%` : 'Tank full.';
-      if (canBuy) {
-        msg += touch ? ` Tap Buy can for a jerry can (£${CAN_PRICE}).` : ` Press E to buy a jerry can (£${CAN_PRICE}).`;
-        action = { label: `Buy can £${CAN_PRICE}`, run: buyCan };
+    else if (state.fuel <= 0 && state.v > 0.5) msg = 'Out of fuel! Coast to a stop, then use your jerry can.';
+    else if (state.fuel <= 0) {
+      msg = `Out of fuel. ${key('J', 'Use can')} to pour in your jerry can.`;
+      action = { label: 'Use can', run: useCan };
+    }
+    else if (blocker && state.v < 0.5) {
+      const what = { sheep: 'Sheep are blocking the road', tree: 'A fallen tree is blocking the road', rocks: 'Rocks have fallen onto the road' }[blocker.kind];
+      msg = `${what}. ${key('E', 'Clear road')} to get out and deal with it.`;
+      action = { label: 'Clear road', run: () => clearBlocker(blocker) };
+    } else if (atSt && stInfo.closed) msg = 'This fuel station is closed. Hope you’ve got enough to reach the next one.';
+    else if (atSt && state.v < 0.5) {
+      if (state.fuel < 96) {
+        msg = touch ? 'Tap Fill up to use the pump, or Garage for jerry cans and upgrades.' : 'Press E to fill up at the pump, or G for the garage (jerry cans and upgrades).';
+        action = { label: 'Fill up', run: fillUp };
+        action2 = { label: 'Garage', run: openGarage };
+      } else {
+        msg = touch ? 'Tank full. Tap Garage for jerry cans and upgrades.' : 'Tank full. Press E (or G) for the garage: jerry cans and upgrades.';
+        action = { label: 'Garage', run: openGarage };
       }
-    } else if (atSt) msg = 'Stop here to fill up';
+    } else if (atSt) msg = 'Stop here to fill up and visit the garage';
     else if (ahead && ahead.sp.kind === 'hitch') {
       const h = hitchInfo(ahead.sp);
-      msg = state.passenger
-        ? 'Someone’s thumbing a lift, but your back seat is taken.'
+      msg = state.passengers.length >= state.seats
+        ? `Someone’s thumbing a lift, but you’ve no free seats.${state.seats < MAX_SEATS ? ' Buy another seat at a garage.' : ''}`
         : `${h.name} wants a lift to ${placeName(h.dest)}. Stop next to them to pick them up.`;
-    } else if (ahead && ahead.sp.kind === 'sheep') msg = touch ? 'Sheep on the road. Stop and wait, or tap Horn.' : 'Sheep on the road. Stop and wait, or press H to honk.';
-    else if (ahead && ahead.sp.kind === 'tree') msg = 'A fallen tree is blocking the road. Stop and wait for help.';
-    else if (ahead && ahead.sp.kind === 'view') msg = touch ? 'Viewpoint. Take a photo here.' : 'Viewpoint. Press P to take a photo here.';
-    else if (state.passenger && info.carW > state.passenger.dest * PLACE_EVERY * PXM - 700) msg = `Stop to let ${state.passenger.name} out at ${placeName(state.passenger.dest)}.`;
-    else if (gap > 0 && gap < 260 && state.fuel < 80) msg = stInfo.closed ? 'Fuel stop ahead (it looks closed)' : 'Fuel stop ahead';
-    else if (state.fuel < 15 && fullCan) msg = touch ? 'Running low. Tap Use can to pour in a jerry can.' : 'Running low. Press J to pour in a jerry can.';
+    } else if (ahead && ahead.sp.kind === 'sheep') msg = 'Sheep on the road ahead. Slow down and stop.';
+    else if (ahead && ahead.sp.kind === 'tree') msg = 'A fallen tree is blocking the road ahead. Slow down and stop.';
+    else if (ahead && ahead.sp.kind === 'rocks') msg = 'Rocks on the road ahead. Slow down and stop.';
+    else if (ahead && ahead.sp.kind === 'mud') msg = 'The road ahead looks very muddy…';
+    else if (ahead && ahead.sp.kind === 'view') msg = touch ? 'Viewpoint. Open the car screen and tap Photo.' : 'Viewpoint. Press P (or Photo on the car screen) to take a postcard.';
+    else if (leaving) msg = `Stop to let ${leaving.name} out at ${placeName(leaving.dest)}.`;
+    else if (gap > 0 && gap < 260 && state.fuel < 80) msg = 'Fuel stop ahead';
+    else if (state.fuel < 15 && fullCan) msg = touch ? 'Running low. Stop and tap Use can to pour in a jerry can.' : 'Running low. Stop and press J to pour in a jerry can.';
     else if (state.fuel < 15) msg = 'Running low on fuel, and no full jerry can…';
 
-    if (!action && fullCan && state.fuel < 75) action = { label: 'Use can', run: () => useCan(false) };
+    if (!action && fullCan && state.fuel < 75 && state.v < 0.5) action = { label: 'Use can', run: useCan };
+    if (CarScreen.isOpen) CarScreen.refresh();
     if (ui.actionBtn) {
       ui.actionBtn.hidden = !action;
       if (action) ui.actionBtn.textContent = action.label;
     }
+    if (ui.action2Btn) {
+      ui.action2Btn.hidden = !action2;
+      if (action2) ui.action2Btn.textContent = action2.label;
+    }
     ui.prompt.textContent = msg;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Speedometer and odometer
+  // ---------------------------------------------------------------------------
+  const SPEEDO_MAX = 80;
+  const spAngle = (mph) => -120 + (clamp(mph, 0, SPEEDO_MAX) / SPEEDO_MAX) * 240;
+  (function buildSpeedo() {
+    const g = document.getElementById('spTicks');
+    let html = '';
+    for (let mph = 0; mph <= SPEEDO_MAX; mph += 5) {
+      const a = (spAngle(mph) - 90) * Math.PI / 180;
+      const major = mph % 20 === 0;
+      const r1 = 52, r2 = major ? 44 : 48;
+      html += `<line class="sp-tick${major ? ' major' : ''}" x1="${(60 + Math.cos(a) * r1).toFixed(2)}" y1="${(60 + Math.sin(a) * r1).toFixed(2)}" x2="${(60 + Math.cos(a) * r2).toFixed(2)}" y2="${(60 + Math.sin(a) * r2).toFixed(2)}"/>`;
+      if (major) html += `<text class="sp-num" x="${(60 + Math.cos(a) * 35).toFixed(2)}" y="${(60 + Math.sin(a) * 35).toFixed(2)}">${mph}</text>`;
+    }
+    g.innerHTML = html;
+  })();
+
+  // a mechanical odometer: five white-on-black miles wheels and a black-on-white tenths wheel
+  const ODO_WHEELS = 6;
+  const odoEl = document.getElementById('odo');
+  const odoStrips = [];
+  for (let i = 0; i < ODO_WHEELS; i++) {
+    const w = document.createElement('span');
+    w.className = 'odo-wheel';
+    const strip = document.createElement('span');
+    strip.className = 'odo-strip';
+    strip.innerHTML = '01234567890'.split('').map((d) => `<b>${d}</b>`).join('');
+    w.appendChild(strip);
+    odoEl.appendChild(w);
+    odoStrips.push(strip);
+  }
+  let odoH = 11, shownMph = 0, lastTenth = -1;
+  const lastOdo = [];
+  function measureOdo() { odoH = odoStrips[0].firstChild.getBoundingClientRect().height || 11; lastOdo.length = 0; }
+  addEventListener('resize', measureOdo);
+  setTimeout(measureOdo, 50);
+
+  function updateGauges(dt) {
+    // needle, with a little lag like a real one
+    shownMph += (state.v * MPH - shownMph) * Math.min(1, dt * 6);
+    document.getElementById('spNeedle').style.transform = `rotate(${spAngle(shownMph).toFixed(2)}deg)`;
+    document.getElementById('speedo').classList.toggle('cruise', state.cruise);
+
+    // odometer: each wheel rolls over as the one to its right goes from 9 to 0
+    const tenths = (stats.metres / MILE) * 10;
+    let lower = tenths % 10;
+    for (let i = ODO_WHEELS - 1; i >= 0; i--) {
+      const k = ODO_WHEELS - 1 - i;
+      let pos;
+      if (k === 0) pos = lower;
+      else {
+        const t = tenths / Math.pow(10, k);
+        pos = Math.floor(t) % 10 + clamp(lower - 9, 0, 1);
+        lower = pos;
+      }
+      const y = (-pos * odoH).toFixed(2);
+      if (lastOdo[i] !== y) { odoStrips[i].style.transform = `translateY(${y}px)`; lastOdo[i] = y; }
+    }
+    const tenth = Math.floor(tenths);
+    if (lastTenth >= 0 && tenth !== lastTenth && state.started) RoadAudio.tick();
+    lastTenth = tenth;
   }
 
   // ---------------------------------------------------------------------------
@@ -1573,6 +1988,7 @@
 
     const place = placeName(Math.floor(info.distM / PLACE_EVERY));
     const km = (info.distM / 1000).toFixed(1);
+    const miles = (info.distM / MILE).toFixed(1);
     const when = timeLabel(state.tod);
     const date = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
 
@@ -1601,7 +2017,7 @@
     g.font = '500 11px "IBM Plex Mono", monospace';
     g.fillText('LOST ROADS', 0, -16);
     g.font = '500 17px "IBM Plex Mono", monospace';
-    g.fillText(`KM ${km}`, 0, 6);
+    g.fillText(`MILE ${miles}`, 0, 6);
     g.font = '400 11px "IBM Plex Mono", monospace';
     g.fillText(date.toUpperCase(), 0, 24);
     g.beginPath();
@@ -1615,7 +2031,7 @@
     let img;
     try { img = card.toDataURL('image/jpeg', 0.84); } catch (e) { toast('Could not take that photo.'); return; }
     const cards = LR.getCards();
-    cards.unshift({ id: Date.now(), img, place, region: info.pal.name, km, when, date });
+    cards.unshift({ id: Date.now(), img, place, region: info.pal.name, km, miles, when, date });
     if (!LR.saveCards(cards)) {
       toast('Your album is full. Remove a few postcards to make room.');
       return;
@@ -1642,7 +2058,8 @@
     const carW = state.cam + carX;
     let throttle = 0;
 
-    if (state.started && !state.paused && !state.over) {
+    const busy = Minigames.isOpen || garageOpen();
+    if (state.started && !state.paused && !state.over && !busy) {
       readGamepad();
       const goNow = input.go || pad.go, brakeNow = input.brake || pad.brake;
       const canDrive = state.fuel > 0;
@@ -1655,6 +2072,13 @@
       if (throttle) state.v += 5.5 * (1 - state.v / (MAX_V * 1.05)) * dt;
       else if (state.cruise && canDrive) state.v += clamp(state.cruiseV - state.v, -2, 2) * dt;
       if (brakeNow) state.v -= 11 * dt;
+      if (state.flat) state.v = Math.min(state.v, 4);
+      if (state.stuck != null) {
+        state.v = 0;
+        if (throttle && Math.random() < dt * 30) {
+          particles.push({ x: carW - 34 + (Math.random() - 0.5) * 10, y: roadY(carW - 34) - 4, vx: -60 - Math.random() * 80, vy: -60 - Math.random() * 60, r: 2.5, age: 0, life: 0.6, mud: true });
+        }
+      }
 
       const slope = (roadY(carW + 30) - roadY(carW - 30)) / 60;
       if (!state.cruise || !canDrive) state.v -= (0.18 + state.v * 0.012) * dt;
@@ -1663,23 +2087,16 @@
 
       const moved = state.v * dt;
       state.cam += moved * PXM;
-      if (canDrive) state.fuel = Math.max(0, state.fuel - (moved / FUEL_RANGE) * 100 * (throttle ? 1.25 : 0.9));
+      // fuel only burns while the accelerator is down (cruise control holds it down for you, gently)
+      const burn = throttle ? 1.25 : state.cruise ? 0.7 : 0;
+      if (canDrive && burn) state.fuel = Math.max(0, state.fuel - (moved / FUEL_RANGE) * 100 * burn);
       stats.metres += moved;
-
-      // fill up (and fill any empty jerry cans) when stopped at an open station
-      if (atOpenStation(carW) && state.v < 1.5) {
-        state.fuel = Math.min(100, state.fuel + 22 * dt);
-        if (state.cans.includes(false) && state.fuel > 99) {
-          state.cans = state.cans.map(() => true);
-          toast('You filled your jerry cans too.');
-        }
-      }
 
       updateJourney(dt, state.cam + carX);
 
       // out of fuel: use a jerry can if there is one, otherwise the journey ends
       if (state.fuel <= 0) {
-        if (!useCan(true) && state.v < 0.3 && !atOpenStation(state.cam + carX)) {
+        if (!state.cans.includes(true) && state.v < 0.3 && !atOpenStation(state.cam + carX)) {
           state.emptyT += dt;
           if (state.emptyT > 1.6) gameOver();
         }
@@ -1723,7 +2140,8 @@
     saveTimer = 300;
     LR.save(LR.KEYS.journey, {
       cam: state.cam, tod: state.tod, fuel: state.fuel, seed: state.seed, money: state.money, cans: state.cans,
-      passenger: state.passenger, done: [...state.done].slice(-200), carried: state.carried, earned: state.earned
+      passengers: state.passengers, seats: state.seats, stuck: state.stuck, flat: state.flat,
+      done: [...state.done].slice(-200), carried: state.carried, earned: state.earned
     });
     LR.save(LR.KEYS.stats, stats);
   }
@@ -1739,6 +2157,7 @@
     step(dt);
     lastInfo = draw(dt);
     updateHud(lastInfo, dt);
+    updateGauges(dt);
     persist(false);
     requestAnimationFrame(frame);
   }
@@ -1760,6 +2179,8 @@
 
   function applyAudioSettings() {
     RoadAudio.setMuted(settings.muted);
+    RoadAudio.setRainStyle(settings.rainStyle);
+    RoadAudio.setRainVolume(settings.rainVol);
     RoadAudio.setEngine(settings.engine);
     RoadAudio.setEngineVolume(settings.engineVol);
     RoadAudio.setRadioVolume(settings.radioVol);
@@ -1828,6 +2249,8 @@
     document.querySelectorAll('input[name="engine"]').forEach((el) => (el.checked = el.value === settings.engine));
     document.querySelectorAll('input[name="radio"]').forEach((el) => (el.checked = el.value === radioValue()));
     ui.engineVol.value = settings.engineVol;
+    document.querySelectorAll('input[name="rain"]').forEach((el) => (el.checked = el.value === settings.rainStyle));
+    document.getElementById('rainVol').value = settings.rainVol;
     ui.radioVol.value = settings.radioVol;
     ui.soundAll.checked = !settings.muted;
     ui.lowPower.checked = !!settings.lowPower;
@@ -1920,6 +2343,20 @@
     toast('Loading your Spotify into the radio…');
   }
 
+  document.querySelectorAll('input[name="rain"]').forEach((el) => el.addEventListener('change', () => {
+    settings.rainStyle = el.value;
+    RoadAudio.start();
+    RoadAudio.setRainStyle(settings.rainStyle);
+    RoadAudio.setRainVolume(settings.rainVol);
+    RoadAudio.previewRain();
+    saveSettings();
+  }));
+  document.getElementById('rainVol').addEventListener('input', (e) => {
+    settings.rainVol = parseFloat(e.target.value);
+    RoadAudio.setRainVolume(settings.rainVol);
+    saveSettings();
+  });
+  document.getElementById('rainVol').addEventListener('change', () => RoadAudio.previewRain());
   ui.spotifyLoad.addEventListener('click', loadSpotifyLink);
   ui.spotifyLink.addEventListener('keydown', (e) => { if (e.key === 'Enter') loadSpotifyLink(); });
   ui.engineVol.addEventListener('input', () => { settings.engineVol = parseFloat(ui.engineVol.value); RoadAudio.setEngineVolume(settings.engineVol); saveSettings(); });
@@ -1961,7 +2398,7 @@
   function toggleCruise() {
     state.cruise = !state.cruise && state.v > 2;
     state.cruiseV = state.v;
-    if (state.cruise) toast(`Cruise control set at ${Math.round(state.v * 3.6)} km/h`);
+    if (state.cruise) toast(`Cruise control set at ${Math.round(state.v * MPH)} mph`);
     const btn = document.querySelector('#touch [data-act="cruise"]');
     if (btn) btn.classList.toggle('on', state.cruise);
   }
@@ -2065,6 +2502,24 @@
   // Car screen (Spotify account)
   // ---------------------------------------------------------------------------
   CarScreen.init({
+    apps: () => {
+      const carW = state.cam + carX;
+      const radioOn = settings.radio;
+      const src = settings.radioSource === 'account' ? 'Spotify' : settings.radioSource === 'spotify' && settings.spotifyUri ? 'Spotify link' : 'Car radio';
+      const garageHere = atOpenStation(carW) && state.v < 0.5;
+      return [
+        { id: 'music', label: 'Music', icon: 'note', colour: '#1f6e48', sub: SpotifyAccount.connected ? 'Spotify' : 'Connect Spotify', view: 'now', run: () => CarScreen.open('now') },
+        { id: 'radio', label: 'Radio', icon: 'radio', colour: '#8a4b2f', on: radioOn, sub: radioOn ? `${src} on` : 'Off', run: () => { begin(); toggleRadio(); } },
+        { id: 'photo', label: 'Photo', icon: 'camera', colour: '#4a5568', sub: 'Take a postcard', closes: true, run: () => setTimeout(() => lastInfo && takePostcard(lastInfo), 250) },
+        { id: 'cruise', label: 'Cruise', icon: 'gauge', colour: '#3b5b6e', on: state.cruise, sub: state.cruise ? `${Math.round(state.cruiseV * MPH)} mph` : (state.v > 2 ? 'Hold this speed' : 'Drive first'), run: toggleCruise },
+        { id: 'horn', label: 'Horn', icon: 'horn', colour: '#6e5a2a', sub: 'Beep', run: honk },
+        { id: 'board', label: 'Leaderboard', icon: 'trophy', colour: '#7a6326', sub: 'Furthest journeys', run: () => CarScreen.open('board') },
+        { id: 'album', label: 'Album', icon: 'album', colour: '#5b3a4e', sub: `${LR.getCards().length} postcards`, closes: true, run: () => { persist(true); location.href = 'album.html'; } },
+        { id: 'garage', label: 'Garage', icon: 'wrench', colour: '#2f4a3a', disabled: !garageHere, sub: garageHere ? 'Open now' : 'At fuel stations', closes: true, run: openGarage },
+        { id: 'settings', label: 'Settings', icon: 'cog', colour: '#3a3f46', sub: 'Engine, account\u2026', closes: true, run: openSettings },
+        { id: 'sound', label: 'Sound', icon: settings.muted ? 'mute' : 'speaker', colour: '#3a3f46', on: !settings.muted, sub: settings.muted ? 'Off' : 'On', run: () => { begin(); toggleSound(); } }
+      ];
+    },
     getClock: () => clockText(state.tod),
     beforeLeave: () => { persist(true); Account.pushSaveOnExit(); },
     onPlay: () => {
@@ -2080,6 +2535,8 @@
   });
   SpotifyAccount.onChange(syncButtons);
   ui.screenBtn.addEventListener('click', (e) => { e.currentTarget.blur(); begin(); CarScreen.toggle(); });
+  document.getElementById('carplayBtn').addEventListener('click', (e) => { e.currentTarget.blur(); begin(); CarScreen.toggle(); });
+  document.getElementById('carplayBtn').addEventListener('pointerdown', (e) => e.stopPropagation());
   ui.spOpenScreen.addEventListener('click', () => { closeSettings(); CarScreen.open(); });
   ui.spDisconnect.addEventListener('click', () => {
     SpotifyAccount.disconnect();
@@ -2118,8 +2575,8 @@
     ui.overText.textContent = `You ran dry near ${place}, with no fuel left in the tank and nothing in the jerry cans.`;
     ui.overStats.innerHTML = '';
     const rows = [
-      ['Distance', `${km.toFixed(1)} km`],
-      ['Best journey', `${stats.best.toFixed(1)} km`],
+      ['Distance', `${(km * 1000 / MILE).toFixed(1)} miles`],
+      ['Best journey', `${(stats.best * 1000 / MILE).toFixed(1)} miles`],
       ['Hitchhikers carried', String(state.carried)],
       ['Money earned', `\u00a3${state.earned}`]
     ];
@@ -2143,7 +2600,10 @@
     state.seed = (Math.random() * 1e6) | 0;
     state.money = 5;
     state.cans = [];
-    state.passenger = null;
+    state.passengers = [];
+    state.seats = 1;
+    state.stuck = null;
+    state.flat = false;
     state.done = new Set();
     state.carried = 0;
     state.earned = 0;
@@ -2166,6 +2626,8 @@
   addEventListener('keydown', (e) => {
     if (e.metaKey || e.ctrlKey || e.altKey) return;
     if (settingsOpen()) { if (e.code === 'Escape') closeSettings(); return; }
+    if (Minigames.isOpen) { if (['Space', 'Enter'].includes(e.code)) e.preventDefault(); if (!e.repeat) Minigames.key(e.code); return; }
+    if (garageOpen()) { if (e.code === 'Escape' || e.code === 'KeyE') closeGarage(); return; }
     if (state.over) { if (e.code === 'Enter' || e.code === 'Space') { e.preventDefault(); newJourney(); } return; }
     if (CarScreen.isOpen && e.code === 'Escape') { CarScreen.close(); return; }
     if (e.code === 'KeyN' && !e.repeat) { begin(); CarScreen.toggle(); return; }
@@ -2178,12 +2640,14 @@
     else if ((e.code === 'KeyP' || e.code === 'Space') && !e.repeat) { e.preventDefault(); if (lastInfo) takePostcard(lastInfo); }
     else if (e.code === 'KeyR' && !e.repeat) toggleRadio();
     else if (e.code === 'KeyM' && !e.repeat) toggleSound();
-    else if (e.code === 'KeyE' && !e.repeat) buyCan();
-    else if (e.code === 'KeyJ' && !e.repeat) useCan(false);
+    else if (e.code === 'KeyE' && !e.repeat) { if (action) action.run(); }
+    else if (e.code === 'KeyJ' && !e.repeat) useCan();
+    else if (e.code === 'KeyG' && !e.repeat) openGarage();
     else if (e.code === 'KeyH' && !e.repeat) honk();
   });
 
   addEventListener('keyup', (e) => {
+    if (Minigames.isOpen) { Minigames.keyUp(e.code); return; }
     if (GO.includes(e.code)) input.go = false;
     if (BRAKE.includes(e.code)) input.brake = false;
   });
@@ -2221,6 +2685,7 @@
       if (act === 'cruise') toggleCruise();
       if (navigator.vibrate && (act === 'go' || act === 'brake')) navigator.vibrate(6);
       if (act === 'action') runAction();
+      if (act === 'action2') runAction2();
       if (act === 'horn') honk();
     });
     const release = () => {
@@ -2243,13 +2708,15 @@
   resize();
   buildDrops();
   ui.restart.addEventListener('click', newJourney);
+  ui.garageClose.addEventListener('click', closeGarage);
+  ui.garage.addEventListener('pointerdown', (e) => { if (e.target === ui.garage) closeGarage(); });
   syncButtons();
   syncAccountUi();
   updateAlbumLink();
   if (saved && saved.cam > 0) {
     const n = Math.floor((saved.cam + carX) / PXM / PLACE_EVERY);
     const cards = LR.getCards().length;
-    ui.resume.textContent = `Picking up the road near ${placeName(n)}. ${(stats.metres / 1000).toFixed(1)} km driven so far${cards ? `, ${cards} postcard${cards === 1 ? '' : 's'} in the album` : ''}.`;
+    ui.resume.textContent = `Picking up the road near ${placeName(n)}. ${(stats.metres / MILE).toFixed(1)} miles driven so far${cards ? `, ${cards} postcard${cards === 1 ? '' : 's'} in the album` : ''}.`;
   }
   if (document.fonts && document.fonts.load) {
     document.fonts.load('italic 54px "EB Garamond"').catch(() => {});
@@ -2262,7 +2729,7 @@
   if (qs.has('km')) state.cam = parseFloat(qs.get('km')) * 1000 * PXM;
 
   if (qs.has('debug')) {
-    window.__lr = {
+    window.__lr = { stats,
       state, ev, input,
       get spots() { return spots; },
       ensureSpots, ensureStations,

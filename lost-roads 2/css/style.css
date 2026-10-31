@@ -1095,3 +1095,272 @@ body.device-touch #touch .mid { gap: 8px; }
 
 /* the on-screen controls only take taps once you're driving */
 body:not(.driving) #touch { pointer-events: none; }
+
+
+/* ------------------------------------------------------------------ */
+/* Minigames and the garage                                            */
+/* ------------------------------------------------------------------ */
+
+#minigame, #garage {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(12, 14, 18, 0.55);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.3s ease;
+}
+#minigame.open, #garage.open { opacity: 1; pointer-events: auto; }
+
+.mg-card, .g-card {
+  width: min(860px, 100%);
+  max-height: 100%;
+  overflow: auto;
+  background: var(--paper);
+  color: var(--ink);
+  padding: 22px 26px 20px;
+  box-shadow: 0 30px 60px -20px rgba(0, 0, 0, 0.6);
+}
+.mg-head, .g-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; }
+.mg-card .kicker, .g-card .kicker { color: var(--ink-soft); margin: 0 0 2px; }
+.mg-card h2, .g-card h2 { font-weight: 400; font-size: 36px; line-height: 1; margin: 0; }
+.mg-close {
+  font-family: var(--mono); font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase;
+  color: var(--ink); background: none; border: 0; border-bottom: 1px solid rgba(42, 40, 36, 0.35); padding: 0 0 2px; cursor: pointer;
+}
+.mg-hint { font-size: 18px; line-height: 1.35; margin: 10px 0 12px; min-height: 2.7em; color: var(--ink); }
+.mg-stage { position: relative; }
+.mg-stage canvas { display: block; width: 100%; touch-action: none; cursor: crosshair; }
+.mg-tap {
+  position: absolute; right: 18px; bottom: 18px;
+  width: 92px; height: 92px; border-radius: 50%;
+  font-family: var(--mono); font-size: 13px; letter-spacing: 0.16em; text-transform: uppercase;
+  color: #1b2026; background: #efe7d6; border: 0; cursor: pointer;
+  box-shadow: 0 6px 16px -6px rgba(0, 0, 0, 0.6);
+  touch-action: none;
+}
+.mg-tap:active { transform: scale(0.95); }
+.mg-foot { display: flex; align-items: center; gap: 20px; margin-top: 14px; }
+.mg-progress { flex: 1; height: 4px; background: rgba(42, 40, 36, 0.15); }
+.mg-progress i { display: block; height: 100%; width: 0; background: #7a3e30; transition: width 0.2s linear; }
+.mg-pay {
+  font: inherit; font-style: italic; font-size: 16px; color: var(--ink-soft);
+  background: none; border: 0; border-bottom: 1px solid rgba(42, 40, 36, 0.3); padding: 0 0 2px; cursor: pointer;
+}
+.mg-pay:disabled { opacity: 0.4; cursor: default; }
+
+.g-card { width: min(560px, 100%); }
+.g-money { margin: 0; font-family: var(--mono); font-size: 18px; }
+.g-money .meta { color: var(--ink-soft); margin-right: 6px; }
+#garageList { margin: 18px 0 10px; border-top: 1px solid rgba(42, 40, 36, 0.2); }
+.g-item { display: flex; justify-content: space-between; align-items: center; gap: 18px; padding: 16px 0; border-bottom: 1px solid rgba(42, 40, 36, 0.14); }
+.g-name { font-size: 22px; margin: 0 0 2px; }
+.g-desc { font-size: 15px; color: var(--ink-soft); margin: 0; line-height: 1.4; }
+.g-buy {
+  flex: 0 0 auto;
+  font-family: var(--mono); font-size: 12px; letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--paper); background: #7a3e30; border: 0; padding: 10px 14px; cursor: pointer;
+}
+.g-buy:disabled { background: transparent; color: var(--ink-soft); border: 1px solid rgba(42, 40, 36, 0.25); cursor: default; }
+.g-close {
+  font-family: var(--mono); font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase;
+  color: var(--ink); background: none; border: 0; border-bottom: 1px solid rgba(42, 40, 36, 0.35); padding: 0 0 2px; cursor: pointer; margin-top: 8px;
+}
+
+@media (pointer: coarse) {
+  .mg-card { padding: 14px 14px 14px; }
+  .mg-card h2, .g-card h2 { font-size: 26px; }
+  .mg-hint { font-size: 15px; margin: 6px 0 8px; }
+  .mg-tap { width: 76px; height: 76px; right: 10px; bottom: 10px; }
+}
+@media (pointer: coarse) and (orientation: landscape) and (max-height: 520px) {
+  #minigame { padding: 6px; }
+  .mg-card { display: grid; grid-template-columns: 1fr 1.6fr; grid-template-rows: auto auto 1fr; column-gap: 14px; height: 100%; }
+  .mg-head { grid-column: 1; }
+  .mg-hint { grid-column: 1; }
+  .mg-foot { grid-column: 1; flex-direction: column; align-items: flex-start; }
+  .mg-progress { width: 100%; flex: none; }
+  .mg-stage { grid-column: 2; grid-row: 1 / span 3; align-self: center; }
+}
+
+
+/* ------------------------------------------------------------------ */
+/* v9: everything lives in the car screen                              */
+/* ------------------------------------------------------------------ */
+
+/* the old on-screen buttons are now apps on the car screen */
+#screenBtn, #settingsBtn, .hud-bottom .links { display: none !important; }
+
+.carplay-side {
+  position: fixed;
+  left: max(14px, env(safe-area-inset-left));
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 6;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 12px 10px 10px;
+  background: rgba(14, 16, 19, 0.55);
+  border: 1px solid rgba(239, 234, 224, 0.18);
+  border-radius: 16px;
+  color: var(--light);
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 1s ease, background 0.2s ease;
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+body.driving .carplay-side { opacity: 1; pointer-events: auto; }
+.carplay-side:hover { background: rgba(14, 16, 19, 0.8); }
+.carplay-side svg { width: 26px; height: 26px; fill: none; stroke: currentColor; stroke-width: 1.8; }
+.carplay-side span { font-family: var(--mono); font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--light-soft); }
+body.screen-open .carplay-side { opacity: 0; pointer-events: none; }
+
+/* car screen home */
+.cs-apps {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: 14px 10px;
+}
+.cs-app {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  border: 0;
+  background: none;
+  color: var(--cs-text);
+  cursor: pointer;
+  padding: 4px 0;
+}
+.cs-app:disabled { opacity: 0.38; cursor: default; }
+.cs-app-icon {
+  width: 58px;
+  height: 58px;
+  border-radius: 15px;
+  display: grid;
+  place-items: center;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12);
+}
+.cs-app-icon svg { width: 30px; height: 30px; fill: none; stroke: #f2f2ee; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.cs-app.on .cs-app-icon { box-shadow: 0 0 0 2px var(--cs-accent), inset 0 1px 0 rgba(255, 255, 255, 0.12); }
+.cs-app-name { font-size: 13px; font-weight: 600; }
+.cs-app-sub { font-size: 11px; color: var(--cs-soft); text-align: center; line-height: 1.2; min-height: 1.2em; }
+
+.cs-board { list-style: none; margin: 0; padding: 0; }
+.cs-board li { display: grid; grid-template-columns: 30px 1fr auto; gap: 8px; padding: 9px 4px; border-bottom: 1px solid var(--cs-line); font-size: 15px; }
+.cs-board li.mine { background: rgba(232, 178, 122, 0.12); }
+.cs-rank { color: var(--cs-soft); font-variant-numeric: tabular-nums; }
+.cs-who { font-weight: 600; }
+.cs-km { font-variant-numeric: tabular-nums; }
+
+/* garage extras */
+.g-section { font-family: var(--mono); font-size: 11px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-soft); margin: 20px 0 4px; }
+.g-swatches { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; padding: 10px 0 14px; border-bottom: 1px solid rgba(42, 40, 36, 0.14); }
+.g-swatch { display: flex; flex-direction: column; align-items: center; gap: 4px; background: none; border: 1px solid transparent; padding: 6px 2px; cursor: pointer; color: var(--ink); }
+.g-swatch i { width: 34px; height: 34px; border-radius: 50%; box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.25); }
+.g-swatch span { font-size: 13px; }
+.g-swatch em { font-family: var(--mono); font-size: 10px; font-style: normal; color: var(--ink-soft); }
+.g-swatch.using { border-color: rgba(42, 40, 36, 0.4); }
+.g-swatch:disabled:not(.using) { opacity: 0.45; cursor: default; }
+.g-note { font-size: 13px; color: var(--ink-soft); margin: 12px 0 0; }
+
+@media (pointer: coarse) and (orientation: landscape) and (max-height: 520px) {
+  .carplay-side { top: auto; bottom: 120px; transform: none; padding: 8px; }
+  .carplay-side span { display: none; }
+}
+@media (pointer: coarse) and (orientation: portrait) {
+  .carplay-side { top: auto; bottom: 120px; transform: none; left: 50%; translate: -50% 0; flex-direction: row; padding: 10px 16px; }
+}
+@media (max-width: 520px) {
+  .g-swatches { grid-template-columns: repeat(4, 1fr); }
+  .cs-apps { grid-template-columns: repeat(4, 1fr); gap: 10px 4px; }
+  .cs-app-icon { width: 50px; height: 50px; }
+}
+@media (pointer: coarse) and (orientation: portrait) {
+  .carplay-side { bottom: max(34px, env(safe-area-inset-bottom)); }
+}
+@media (pointer: coarse) and (orientation: landscape) and (max-height: 520px) {
+  .cs-apps { grid-template-columns: repeat(5, 1fr); gap: 8px 4px; }
+  .cs-app-icon { width: 48px; height: 48px; border-radius: 13px; }
+  .cs-app-icon svg { width: 24px; height: 24px; }
+  .cs-view { padding: 14px 16px; }
+}
+
+
+/* ------------------------------------------------------------------ */
+/* Speedometer and odometer                                            */
+/* ------------------------------------------------------------------ */
+
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+
+.speedo { position: relative; width: 112px; height: 112px; flex: 0 0 auto; margin-bottom: -6px; }
+.speedo svg { width: 100%; height: 100%; display: block; overflow: visible; }
+.sp-face { fill: rgba(12, 14, 17, 0.55); stroke: rgba(239, 234, 224, 0.28); stroke-width: 1.2; }
+.sp-tick { stroke: rgba(239, 234, 224, 0.75); stroke-width: 1; }
+.sp-tick.major { stroke: var(--light); stroke-width: 1.8; }
+.sp-num { fill: var(--light); font-family: var(--mono); font-size: 8.5px; text-anchor: middle; dominant-baseline: middle; }
+.sp-unit { fill: var(--light-soft); font-family: var(--mono); font-size: 6.5px; letter-spacing: 0.18em; text-anchor: middle; }
+.sp-cruise { fill: #8fc27d; font-family: var(--mono); font-size: 6px; letter-spacing: 0.16em; text-anchor: middle; opacity: 0; transition: opacity 0.3s; }
+.speedo.cruise .sp-cruise { opacity: 1; }
+.sp-needle { stroke: #e0805f; stroke-width: 2; stroke-linecap: round; }
+.sp-hub { fill: #2a2d31; stroke: rgba(239, 234, 224, 0.6); stroke-width: 1; }
+#spNeedle { transform-origin: 60px 60px; transform-box: view-box; }
+
+.odo-window {
+  position: absolute;
+  left: 50%;
+  top: 70.5%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  padding: 1.5px;
+  background: #0b0c0d;
+  border-radius: 2px;
+  box-shadow: inset 0 0 0 1px rgba(239, 234, 224, 0.25);
+}
+.odo-wheel {
+  width: 7.5px;
+  height: 11px;
+  overflow: hidden;
+  position: relative;
+  background: linear-gradient(#141516, #222426 45%, #222426 55%, #141516);
+  margin-right: 0.5px;
+}
+.odo-wheel:last-child { margin-right: 0; background: linear-gradient(#cfc8b8, #efe8d8 45%, #efe8d8 55%, #cfc8b8); }
+.odo-strip { position: absolute; left: 0; right: 0; top: 0; will-change: transform; }
+.odo-strip b {
+  display: block;
+  height: 11px;
+  line-height: 11px;
+  font-family: var(--mono);
+  font-weight: 500;
+  font-size: 9.5px;
+  text-align: center;
+  color: #ece6d8;
+}
+.odo-wheel:last-child .odo-strip b { color: #1b1c1d; }
+.odo-wheel::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(rgba(0, 0, 0, 0.55), transparent 30%, transparent 70%, rgba(0, 0, 0, 0.55));
+  pointer-events: none;
+}
+
+.gauges { align-items: flex-end; }
+
+@media (pointer: coarse) {
+  .speedo { width: 96px; height: 96px; }
+  .odo-wheel { width: 6.5px; height: 10px; }
+  .odo-strip b { height: 10px; line-height: 10px; font-size: 8.5px; }
+}
+@media (min-width: 1600px) and (pointer: fine) {
+  .speedo { width: 128px; height: 128px; }
+}

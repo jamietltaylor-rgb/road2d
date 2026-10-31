@@ -13,7 +13,9 @@
   const PLACE_EVERY = 1500;      // metres between village signs
   const STATION_EVERY = 2400;    // metres between fuel stops
   const STATION_OFFSET = 1300;
-  const MAX_V = 30;              // metres per second (about 108 km/h)
+  const MAX_V = 30;              // metres per second (about 67 mph)
+  const MILE = 1609.344;         // metres in a mile
+  const MPH = 2.23694;           // metres per second -> miles per hour
   const DAY_SECONDS = 540;       // one full day takes nine minutes
   const FUEL_RANGE = 3600;       // metres on a full tank
 
@@ -188,7 +190,7 @@
   const saved = LR.load(LR.KEYS.journey, null);
   const stats = LR.load(LR.KEYS.stats, { metres: 0 });
   const settings = Object.assign(
-    { muted: false, radio: false, radioSource: 'builtin', engine: 'petrol', engineVol: 0.8, radioVol: 0.8, spotifyUri: '', lowPower: false },
+    { muted: false, radio: false, radioSource: 'builtin', engine: 'petrol', engineVol: 0.8, radioVol: 0.8, spotifyUri: '', lowPower: false, rainStyle: 'patter', rainVol: 0.8 },
     LR.load(LR.KEYS.settings, {})
   );
 
@@ -785,6 +787,32 @@
     RoadAudio.chime();
     toast(`Bought a jerry can and filled it (−£${CAN_PRICE})`);
   }
+  function carStyle() {
+    if (!settings.car) settings.car = { paint: 'oxide', shape: 'estate' };
+    return settings.car;
+  }
+  function owned() {
+    if (!stats.owned) stats.owned = { paints: ['oxide'], shapes: ['estate'] };
+    return stats.owned;
+  }
+  function pickStyle(kind, id, price, name) {
+    const o = owned();
+    const list = kind === 'paint' ? o.paints : o.shapes;
+    if (!list.includes(id)) {
+      if (state.money < price) { toast(`That costs \u00a3${price}. Pick up a few more hitchhikers.`); return; }
+      state.money -= price;
+      list.push(id);
+      RoadAudio.chime();
+      toast(kind === 'paint' ? `Resprayed in ${name} (\u2212\u00a3${price})` : `Your car is now a ${name.toLowerCase()} (\u2212\u00a3${price})`);
+    } else {
+      toast(kind === 'paint' ? `Switched to ${name}` : `Switched to the ${name.toLowerCase()}`);
+    }
+    if (kind === 'paint') carStyle().paint = id; else carStyle().shape = id;
+    saveSettings();
+    LR.save(LR.KEYS.stats, stats);
+    persist(true);
+  }
+
   // ---- the garage at open fuel stations ----
   function garageOpen() { return ui.garage.classList.contains('open'); }
   function openGarage() {
@@ -824,6 +852,8 @@
       buy: buySeat
     });
     ui.garageList.innerHTML = '';
+    const heading = (t) => { const h = document.createElement('p'); h.className = 'g-section'; h.textContent = t; ui.garageList.appendChild(h); };
+    heading('Supplies and seats');
     for (const it of items) {
       const row = document.createElement('div');
       row.className = 'g-item';
@@ -841,6 +871,46 @@
       row.append(text, b);
       ui.garageList.appendChild(row);
     }
+
+    // paint
+    heading('Paint');
+    const sw = document.createElement('div');
+    sw.className = 'g-swatches';
+    for (const pnt of PAINTS) {
+      const have = owned().paints.includes(pnt.id);
+      const using = carStyle().paint === pnt.id;
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'g-swatch' + (using ? ' using' : '');
+      b.innerHTML = `<i style="background:${pnt.hex}"></i><span>${pnt.name}</span><em>${using ? 'Your car' : have ? 'Owned' : '\u00a3' + pnt.price}</em>`;
+      b.disabled = using || (!have && state.money < pnt.price);
+      b.addEventListener('click', () => { pickStyle('paint', pnt.id, pnt.price, pnt.name); renderGarage(); });
+      sw.appendChild(b);
+    }
+    ui.garageList.appendChild(sw);
+
+    // body
+    heading('Body');
+    for (const [id, sh] of Object.entries(SHAPES)) {
+      const have = owned().shapes.includes(id);
+      const using = carStyle().shape === id;
+      const row = document.createElement('div');
+      row.className = 'g-item';
+      const text = document.createElement('div');
+      const n = document.createElement('p'); n.className = 'g-name'; n.textContent = sh.name;
+      const d = document.createElement('p'); d.className = 'g-desc'; d.textContent = sh.desc;
+      text.append(n, d);
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'g-buy';
+      if (using) { b.textContent = 'Your car'; b.disabled = true; }
+      else if (have) b.textContent = 'Switch';
+      else { b.textContent = `Buy \u00a3${sh.price}`; b.disabled = state.money < sh.price; }
+      b.addEventListener('click', () => { pickStyle('shape', id, sh.price, sh.name); renderGarage(); });
+      row.append(text, b);
+      ui.garageList.appendChild(row);
+    }
+    ui.garageList.appendChild(Object.assign(document.createElement('p'), { className: 'g-note', textContent: 'Paint and bodies you buy are yours to keep, even after a new journey.' }));
   }
   function buySeat() {
     const next = state.seats + 1;
@@ -876,7 +946,7 @@
     const carW = state.cam + carX;
     if (!atOpenStation(carW)) return;
     if (state.v > 0.5) { toast('Stop at the pump first.'); return; }
-    if (state.fuel >= 96) { toast('Your tank is already full.'); return; }
+    if (state.fuel >= 92) { toast('Your tank is already full.'); return; }
     input.go = input.brake = false;
     state.cruise = false;
     Minigames.open('pump', {
@@ -1212,6 +1282,62 @@
   // ---------------------------------------------------------------------------
   // The car
   // ---------------------------------------------------------------------------
+  // ---------------------------------------------------------------------------
+  // Car shapes and paint (bought at the garage, kept for good once bought)
+  // ---------------------------------------------------------------------------
+  const PAINTS = [
+    { id: 'oxide', name: 'Oxide red', hex: '#7a3e30', price: 0 },
+    { id: 'green', name: 'Racing green', hex: '#2f4a3a', price: 15 },
+    { id: 'navy', name: 'Navy', hex: '#2c3a52', price: 15 },
+    { id: 'cream', name: 'Cream', hex: '#d3c8ad', price: 15 },
+    { id: 'mustard', name: 'Mustard', hex: '#b08a35', price: 15 },
+    { id: 'sky', name: 'Faded sky', hex: '#6c8ea3', price: 15 },
+    { id: 'charcoal', name: 'Charcoal', hex: '#34373b', price: 15 },
+    { id: 'plum', name: 'Plum', hex: '#5b3a4e', price: 15 }
+  ];
+  const poly = (pts) => {
+    ctx.moveTo(pts[0][0], pts[0][1]);
+    for (let i = 1; i < pts.length; i++) {
+      const p = pts[i];
+      if (p.length === 4) ctx.quadraticCurveTo(p[0], p[1], p[2], p[3]); else ctx.lineTo(p[0], p[1]);
+    }
+    ctx.closePath();
+  };
+  const NOSE = [[32, -30], [51, -27], [59, -26, 60, -19], [60, -10], [59, -5, 54, -5]];
+  const FRONT_WINDOW = [[-10, -30], [-10, -46], [12, -46], [16, -46, 18, -43], [27, -30]];
+  const SHAPES = {
+    estate: {
+      name: 'Estate', desc: 'The old faithful, with a roof rack.', price: 0,
+      body: [[-55, -5], [-58, -19], [-58, -27, -51, -27], [-45, -27], [-41, -46], [-40, -50, -35, -50], [13, -50], [18, -50, 21, -46], ...NOSE],
+      windows: [[[-39, -30], [-36, -46], [-14, -46], [-14, -30]], FRONT_WINDOW],
+      seats: [[-25, -38.5], [6, -38.5], [-33, -38.5]], rear: -58, rack: true, doors: true
+    },
+    hatch: {
+      name: 'Hatchback', desc: 'Shorter and nippier-looking.', price: 25,
+      body: [[-50, -5], [-52, -20], [-50, -28], [-38, -48], [-34, -50, -30, -50], [13, -50], [18, -50, 21, -46], ...NOSE],
+      windows: [[[-44, -30], [-35, -46], [-14, -46], [-14, -30]], FRONT_WINDOW],
+      seats: [[-24, -38.5], [6, -38.5], [-33, -36]], rear: -52, rack: false, doors: true
+    },
+    coupe: {
+      name: 'Coupé', desc: 'Low, sleek and a bit impractical.', price: 60,
+      body: [[-55, -5], [-58, -18], [-58, -25, -51, -26], [-28, -41], [-22, -44, -14, -44], [6, -44], [12, -44, 16, -40], [30, -28], [51, -25], [59, -24, 60, -17], [60, -10], [59, -5, 54, -5]],
+      windows: [[[-36, -29], [-26, -38], [-14, -40], [-14, -29]], [[-10, -29], [-10, -40], [6, -40], [10, -40, 13, -37], [24, -29]]],
+      seats: [[-22, -34], [4, -34], [-28, -33]], rear: -58, rack: false, doors: true
+    },
+    pickup: {
+      name: 'Pickup', desc: 'Open back. Hitchhikers can ride in the bed.', price: 45,
+      body: [[-58, -5], [-60, -27], [-12, -27], [-10, -48], [-6, -50], [13, -50], [18, -50, 21, -46], ...NOSE],
+      windows: [[[-7, -30], [-5, -46], [12, -46], [16, -46, 18, -43], [27, -30]]],
+      seats: [[4, -38.5], [-42, -31], [-26, -31]], rear: -60, rack: false, doors: false, bed: true
+    },
+    van: {
+      name: 'Camper van', desc: 'Tall, roomy and slow-looking.', price: 70,
+      body: [[-58, -5], [-59, -62], [-59, -66, -54, -66], [20, -66], [26, -66, 28, -60], [36, -34], [51, -29], [59, -27, 60, -19], [60, -10], [59, -5, 54, -5]],
+      windows: [[[-53, -58], [-36, -58], [-36, -44], [-53, -44]], [[-31, -58], [-14, -58], [-14, -44], [-31, -44]], [[-9, -58], [10, -58], [10, -44], [-9, -44]], [[14, -58], [22, -58], [31, -38], [14, -38]]],
+      seats: [[-44, -48], [0, -48], [-22, -48]], rear: -59, rack: false, doors: false, stripe: true, roofbox: true
+    }
+  };
+
   function drawCar(cx, cy, angle, wheelRot, c) {
     ctx.save();
     ctx.translate(cx, cy);
@@ -1221,35 +1347,24 @@
     ctx.fillStyle = rgb(c.under);
     for (const wx of [-34, 34]) { ctx.beginPath(); ctx.arc(wx, 0, 13.5, 0, Math.PI * 2); ctx.fill(); }
 
+    const S = SHAPES[c.shape] || SHAPES.estate;
+
     // body
     ctx.beginPath();
-    ctx.moveTo(-55, -5);
-    ctx.lineTo(-58, -19);
-    ctx.quadraticCurveTo(-58, -27, -51, -27);
-    ctx.lineTo(-45, -27);
-    ctx.lineTo(-41, -46);
-    ctx.quadraticCurveTo(-40, -50, -35, -50);
-    ctx.lineTo(13, -50);
-    ctx.quadraticCurveTo(18, -50, 21, -46);
-    ctx.lineTo(32, -30);
-    ctx.lineTo(51, -27);
-    ctx.quadraticCurveTo(59, -26, 60, -19);
-    ctx.lineTo(60, -10);
-    ctx.quadraticCurveTo(59, -5, 54, -5);
-    ctx.closePath();
+    poly(S.body);
     ctx.fillStyle = rgb(c.body);
     ctx.fill();
 
     // lower shading
     ctx.fillStyle = rgb(c.shade);
+    ctx.fillRect(S.rear + 1, -14, 60 - S.rear - 1, 6);
     ctx.beginPath();
-    ctx.moveTo(-56, -14);
-    ctx.lineTo(60, -14);
-    ctx.lineTo(60, -10);
-    ctx.quadraticCurveTo(59, -5, 54, -5);
-    ctx.lineTo(-55, -5);
-    ctx.closePath();
+    ctx.moveTo(S.rear + 2, -8); ctx.lineTo(60, -8); ctx.quadraticCurveTo(59, -5, 54, -5); ctx.lineTo(S.rear + 3, -5); ctx.closePath();
     ctx.fill();
+    if (S.stripe) {
+      ctx.fillStyle = rgb(c.trim, 0.85);
+      ctx.fillRect(S.rear + 1, -34, 60 - S.rear - 4, 5);
+    }
 
     // re-cut the wheel arches over the body
     ctx.fillStyle = rgb(c.under);
@@ -1263,57 +1378,66 @@
     // windows
     ctx.fillStyle = rgb(c.glass);
     ctx.beginPath();
-    ctx.moveTo(-39, -30); ctx.lineTo(-36, -46); ctx.lineTo(-14, -46); ctx.lineTo(-14, -30); ctx.closePath();
-    ctx.moveTo(-10, -30); ctx.lineTo(-10, -46); ctx.lineTo(12, -46); ctx.quadraticCurveTo(16, -46, 18, -43); ctx.lineTo(27, -30); ctx.closePath();
+    S.windows.forEach(poly);
     ctx.fill();
-    // soft reflection
-    ctx.strokeStyle = rgb(c.trim, 0.35);
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(-30, -44); ctx.lineTo(-34, -32);
-    ctx.moveTo(4, -44); ctx.lineTo(0, -32);
-    ctx.stroke();
 
-    // a passenger in the back
+    // pickup bed
+    if (S.bed) {
+      ctx.fillStyle = rgb(c.under, 0.7);
+      ctx.fillRect(S.rear + 2, -27, -12 - S.rear - 3, 2);
+      ctx.fillStyle = rgb(c.case);
+      ctx.fillRect(-52, -33, 14, 6);
+    }
+
+    // passengers
     for (let i = 0; i < (c.riders || 0); i++) {
-      const hx = [-25, 6, -33][i];
+      const [hx, hy] = S.seats[i];
       ctx.fillStyle = rgb(c.passenger, 0.85);
-      ctx.beginPath(); ctx.arc(hx, -38.5, 4.6, 0, Math.PI * 2); ctx.fill();
-      ctx.fillRect(hx - 6, -34, 12, 4);
+      ctx.beginPath(); ctx.arc(hx, hy, 4.6, 0, Math.PI * 2); ctx.fill();
+      ctx.fillRect(hx - 6, hy + 4.5, 12, 4);
     }
 
     // trim and doors
     ctx.strokeStyle = rgb(c.trim, 0.55);
+    ctx.lineWidth = 1;
     ctx.beginPath();
-    ctx.moveTo(-57, -21); ctx.lineTo(59, -21);
+    ctx.moveTo(S.rear + 1, -21); ctx.lineTo(59, -21);
     ctx.stroke();
-    ctx.strokeStyle = rgb(c.shade, 0.9);
-    ctx.beginPath();
-    ctx.moveTo(-12, -29); ctx.lineTo(-12, -8);
-    ctx.moveTo(16, -29); ctx.lineTo(16, -8);
-    ctx.stroke();
+    if (S.doors) {
+      ctx.strokeStyle = rgb(c.shade, 0.9);
+      ctx.beginPath();
+      ctx.moveTo(-12, -29); ctx.lineTo(-12, -8);
+      ctx.moveTo(16, -29); ctx.lineTo(16, -8);
+      ctx.stroke();
+    }
 
     // bumpers
     ctx.fillStyle = rgb(c.trim);
-    ctx.fillRect(-61, -11, 7, 3);
+    ctx.fillRect(S.rear - 3, -11, 7, 3);
     ctx.fillRect(56, -11, 7, 3);
 
     // roof rack and luggage
-    ctx.fillStyle = rgb(c.under);
-    ctx.fillRect(-36, -53, 48, 1.6);
-    ctx.fillRect(-33, -53, 1.6, 3);
-    ctx.fillRect(8, -53, 1.6, 3);
-    ctx.fillStyle = rgb(c.case);
-    ctx.fillRect(-30, -63, 24, 10);
-    ctx.fillRect(-4, -60, 12, 7);
-    ctx.fillStyle = rgb(c.under, 0.6);
-    ctx.fillRect(-19, -63, 2, 10);
+    if (S.rack) {
+      ctx.fillStyle = rgb(c.under);
+      ctx.fillRect(-36, -53, 48, 1.6);
+      ctx.fillRect(-33, -53, 1.6, 3);
+      ctx.fillRect(8, -53, 1.6, 3);
+      ctx.fillStyle = rgb(c.case);
+      ctx.fillRect(-30, -63, 24, 10);
+      ctx.fillRect(-4, -60, 12, 7);
+      ctx.fillStyle = rgb(c.under, 0.6);
+      ctx.fillRect(-19, -63, 2, 10);
+    }
+    if (S.roofbox) {
+      ctx.fillStyle = rgb(c.under);
+      ctx.beginPath(); poly([[-44, -66], [-40, -73], [2, -73], [6, -66]]); ctx.fill();
+    }
 
     // lamps
     ctx.fillStyle = rgb(c.head);
     ctx.beginPath(); ctx.arc(57, -21, 2.6, 0, Math.PI * 2); ctx.fill();
     ctx.fillStyle = rgb(c.tail);
-    ctx.fillRect(-59, -24, 2.5, 6);
+    ctx.fillRect((SHAPES[c.shape] || SHAPES.estate).rear - 1, -24, 2.5, 6);
 
     // wheels
     for (const wx of [-34, 34]) {
@@ -1504,6 +1628,10 @@
       carCols.head = mix(CAR.head, hex('#fff4d8'), lightsOn);
       carCols.tail = mix(CAR.tail, hex('#ff4a36'), lightsOn);
     }
+    const paint = PAINTS.find((x) => x.id === carStyle().paint) || PAINTS[0];
+    carCols.body = shade(hex(paint.hex));
+    carCols.shade = shade(mix(hex(paint.hex), hex('#000000'), 0.27));
+    carCols.shape = carStyle().shape;
     carCols.passenger = shade(hex('#1e1c1a'));
     carCols.riders = state.passengers.length;
     carCols.flat = state.flat;
@@ -1656,8 +1784,8 @@
       ui.place.classList.add('show');
     }
     ui.region.textContent = `${info.pal.name} · ${clockText(state.tod)}`;
-    ui.km.textContent = `${(info.distM / 1000).toFixed(1)} km`;
-    ui.speed.textContent = `${Math.round(state.v * 3.6)} km/h`;
+    ui.km.textContent = `${(stats.metres / MILE).toFixed(1)} miles`;
+    ui.speed.textContent = `${Math.round(state.v * MPH)} mph`;
     ui.speedLabel.textContent = state.cruise ? 'Cruise' : 'Speed';
     const cb = document.querySelector('#touch [data-act="cruise"]');
     if (cb) cb.classList.toggle('on', state.cruise);
@@ -1673,7 +1801,7 @@
     }
     if (ui.cans.innerHTML !== cansHtml) ui.cans.innerHTML = cansHtml;
     const nextWx = nextStationAfter(info.carW + 100);
-    ui.nextFuel.textContent = `next fuel ${((nextWx - info.carW) / PXM / 1000).toFixed(1)} km`;
+    ui.nextFuel.textContent = `next fuel ${((nextWx - info.carW) / PXM / MILE).toFixed(1)} mi`;
     ui.passenger.textContent = state.passengers.length
       ? `${state.passengers.length > 1 ? 'Passengers' : 'Passenger'}: ${state.passengers.map((p) => `${p.name} (${placeName(p.dest)})`).join(', ')} · ${state.seats} seat${state.seats > 1 ? 's' : ''}`
       : (state.seats > 1 ? `${state.seats} passenger seats` : '');
@@ -1720,7 +1848,7 @@
       action = { label: 'Clear road', run: () => clearBlocker(blocker) };
     } else if (atSt && stInfo.closed) msg = 'This fuel station is closed. Hope you’ve got enough to reach the next one.';
     else if (atSt && state.v < 0.5) {
-      if (state.fuel < 96) {
+      if (state.fuel < 92) {
         msg = touch ? 'Tap Fill up to use the pump, or Garage for jerry cans and upgrades.' : 'Press E to fill up at the pump, or G for the garage (jerry cans and upgrades).';
         action = { label: 'Fill up', run: fillUp };
         action2 = { label: 'Garage', run: openGarage };
@@ -1738,13 +1866,14 @@
     else if (ahead && ahead.sp.kind === 'tree') msg = 'A fallen tree is blocking the road ahead. Slow down and stop.';
     else if (ahead && ahead.sp.kind === 'rocks') msg = 'Rocks on the road ahead. Slow down and stop.';
     else if (ahead && ahead.sp.kind === 'mud') msg = 'The road ahead looks very muddy…';
-    else if (ahead && ahead.sp.kind === 'view') msg = touch ? 'Viewpoint. Take a photo here.' : 'Viewpoint. Press P to take a photo here.';
+    else if (ahead && ahead.sp.kind === 'view') msg = touch ? 'Viewpoint. Open the car screen and tap Photo.' : 'Viewpoint. Press P (or Photo on the car screen) to take a postcard.';
     else if (leaving) msg = `Stop to let ${leaving.name} out at ${placeName(leaving.dest)}.`;
     else if (gap > 0 && gap < 260 && state.fuel < 80) msg = 'Fuel stop ahead';
     else if (state.fuel < 15 && fullCan) msg = touch ? 'Running low. Stop and tap Use can to pour in a jerry can.' : 'Running low. Stop and press J to pour in a jerry can.';
     else if (state.fuel < 15) msg = 'Running low on fuel, and no full jerry can…';
 
     if (!action && fullCan && state.fuel < 75 && state.v < 0.5) action = { label: 'Use can', run: useCan };
+    if (CarScreen.isOpen) CarScreen.refresh();
     if (ui.actionBtn) {
       ui.actionBtn.hidden = !action;
       if (action) ui.actionBtn.textContent = action.label;
@@ -1754,6 +1883,70 @@
       if (action2) ui.action2Btn.textContent = action2.label;
     }
     ui.prompt.textContent = msg;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Speedometer and odometer
+  // ---------------------------------------------------------------------------
+  const SPEEDO_MAX = 80;
+  const spAngle = (mph) => -120 + (clamp(mph, 0, SPEEDO_MAX) / SPEEDO_MAX) * 240;
+  (function buildSpeedo() {
+    const g = document.getElementById('spTicks');
+    let html = '';
+    for (let mph = 0; mph <= SPEEDO_MAX; mph += 5) {
+      const a = (spAngle(mph) - 90) * Math.PI / 180;
+      const major = mph % 20 === 0;
+      const r1 = 52, r2 = major ? 44 : 48;
+      html += `<line class="sp-tick${major ? ' major' : ''}" x1="${(60 + Math.cos(a) * r1).toFixed(2)}" y1="${(60 + Math.sin(a) * r1).toFixed(2)}" x2="${(60 + Math.cos(a) * r2).toFixed(2)}" y2="${(60 + Math.sin(a) * r2).toFixed(2)}"/>`;
+      if (major) html += `<text class="sp-num" x="${(60 + Math.cos(a) * 35).toFixed(2)}" y="${(60 + Math.sin(a) * 35).toFixed(2)}">${mph}</text>`;
+    }
+    g.innerHTML = html;
+  })();
+
+  // a mechanical odometer: five white-on-black miles wheels and a black-on-white tenths wheel
+  const ODO_WHEELS = 6;
+  const odoEl = document.getElementById('odo');
+  const odoStrips = [];
+  for (let i = 0; i < ODO_WHEELS; i++) {
+    const w = document.createElement('span');
+    w.className = 'odo-wheel';
+    const strip = document.createElement('span');
+    strip.className = 'odo-strip';
+    strip.innerHTML = '01234567890'.split('').map((d) => `<b>${d}</b>`).join('');
+    w.appendChild(strip);
+    odoEl.appendChild(w);
+    odoStrips.push(strip);
+  }
+  let odoH = 11, shownMph = 0, lastTenth = -1;
+  const lastOdo = [];
+  function measureOdo() { odoH = odoStrips[0].firstChild.getBoundingClientRect().height || 11; lastOdo.length = 0; }
+  addEventListener('resize', measureOdo);
+  setTimeout(measureOdo, 50);
+
+  function updateGauges(dt) {
+    // needle, with a little lag like a real one
+    shownMph += (state.v * MPH - shownMph) * Math.min(1, dt * 6);
+    document.getElementById('spNeedle').style.transform = `rotate(${spAngle(shownMph).toFixed(2)}deg)`;
+    document.getElementById('speedo').classList.toggle('cruise', state.cruise);
+
+    // odometer: each wheel rolls over as the one to its right goes from 9 to 0
+    const tenths = (stats.metres / MILE) * 10;
+    let lower = tenths % 10;
+    for (let i = ODO_WHEELS - 1; i >= 0; i--) {
+      const k = ODO_WHEELS - 1 - i;
+      let pos;
+      if (k === 0) pos = lower;
+      else {
+        const t = tenths / Math.pow(10, k);
+        pos = Math.floor(t) % 10 + clamp(lower - 9, 0, 1);
+        lower = pos;
+      }
+      const y = (-pos * odoH).toFixed(2);
+      if (lastOdo[i] !== y) { odoStrips[i].style.transform = `translateY(${y}px)`; lastOdo[i] = y; }
+    }
+    const tenth = Math.floor(tenths);
+    if (lastTenth >= 0 && tenth !== lastTenth && state.started) RoadAudio.tick();
+    lastTenth = tenth;
   }
 
   // ---------------------------------------------------------------------------
@@ -1795,6 +1988,7 @@
 
     const place = placeName(Math.floor(info.distM / PLACE_EVERY));
     const km = (info.distM / 1000).toFixed(1);
+    const miles = (info.distM / MILE).toFixed(1);
     const when = timeLabel(state.tod);
     const date = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
 
@@ -1823,7 +2017,7 @@
     g.font = '500 11px "IBM Plex Mono", monospace';
     g.fillText('LOST ROADS', 0, -16);
     g.font = '500 17px "IBM Plex Mono", monospace';
-    g.fillText(`KM ${km}`, 0, 6);
+    g.fillText(`MILE ${miles}`, 0, 6);
     g.font = '400 11px "IBM Plex Mono", monospace';
     g.fillText(date.toUpperCase(), 0, 24);
     g.beginPath();
@@ -1837,7 +2031,7 @@
     let img;
     try { img = card.toDataURL('image/jpeg', 0.84); } catch (e) { toast('Could not take that photo.'); return; }
     const cards = LR.getCards();
-    cards.unshift({ id: Date.now(), img, place, region: info.pal.name, km, when, date });
+    cards.unshift({ id: Date.now(), img, place, region: info.pal.name, km, miles, when, date });
     if (!LR.saveCards(cards)) {
       toast('Your album is full. Remove a few postcards to make room.');
       return;
@@ -1963,6 +2157,7 @@
     step(dt);
     lastInfo = draw(dt);
     updateHud(lastInfo, dt);
+    updateGauges(dt);
     persist(false);
     requestAnimationFrame(frame);
   }
@@ -1984,6 +2179,8 @@
 
   function applyAudioSettings() {
     RoadAudio.setMuted(settings.muted);
+    RoadAudio.setRainStyle(settings.rainStyle);
+    RoadAudio.setRainVolume(settings.rainVol);
     RoadAudio.setEngine(settings.engine);
     RoadAudio.setEngineVolume(settings.engineVol);
     RoadAudio.setRadioVolume(settings.radioVol);
@@ -2052,6 +2249,8 @@
     document.querySelectorAll('input[name="engine"]').forEach((el) => (el.checked = el.value === settings.engine));
     document.querySelectorAll('input[name="radio"]').forEach((el) => (el.checked = el.value === radioValue()));
     ui.engineVol.value = settings.engineVol;
+    document.querySelectorAll('input[name="rain"]').forEach((el) => (el.checked = el.value === settings.rainStyle));
+    document.getElementById('rainVol').value = settings.rainVol;
     ui.radioVol.value = settings.radioVol;
     ui.soundAll.checked = !settings.muted;
     ui.lowPower.checked = !!settings.lowPower;
@@ -2144,6 +2343,20 @@
     toast('Loading your Spotify into the radio…');
   }
 
+  document.querySelectorAll('input[name="rain"]').forEach((el) => el.addEventListener('change', () => {
+    settings.rainStyle = el.value;
+    RoadAudio.start();
+    RoadAudio.setRainStyle(settings.rainStyle);
+    RoadAudio.setRainVolume(settings.rainVol);
+    RoadAudio.previewRain();
+    saveSettings();
+  }));
+  document.getElementById('rainVol').addEventListener('input', (e) => {
+    settings.rainVol = parseFloat(e.target.value);
+    RoadAudio.setRainVolume(settings.rainVol);
+    saveSettings();
+  });
+  document.getElementById('rainVol').addEventListener('change', () => RoadAudio.previewRain());
   ui.spotifyLoad.addEventListener('click', loadSpotifyLink);
   ui.spotifyLink.addEventListener('keydown', (e) => { if (e.key === 'Enter') loadSpotifyLink(); });
   ui.engineVol.addEventListener('input', () => { settings.engineVol = parseFloat(ui.engineVol.value); RoadAudio.setEngineVolume(settings.engineVol); saveSettings(); });
@@ -2185,7 +2398,7 @@
   function toggleCruise() {
     state.cruise = !state.cruise && state.v > 2;
     state.cruiseV = state.v;
-    if (state.cruise) toast(`Cruise control set at ${Math.round(state.v * 3.6)} km/h`);
+    if (state.cruise) toast(`Cruise control set at ${Math.round(state.v * MPH)} mph`);
     const btn = document.querySelector('#touch [data-act="cruise"]');
     if (btn) btn.classList.toggle('on', state.cruise);
   }
@@ -2289,6 +2502,24 @@
   // Car screen (Spotify account)
   // ---------------------------------------------------------------------------
   CarScreen.init({
+    apps: () => {
+      const carW = state.cam + carX;
+      const radioOn = settings.radio;
+      const src = settings.radioSource === 'account' ? 'Spotify' : settings.radioSource === 'spotify' && settings.spotifyUri ? 'Spotify link' : 'Car radio';
+      const garageHere = atOpenStation(carW) && state.v < 0.5;
+      return [
+        { id: 'music', label: 'Music', icon: 'note', colour: '#1f6e48', sub: SpotifyAccount.connected ? 'Spotify' : 'Connect Spotify', view: 'now', run: () => CarScreen.open('now') },
+        { id: 'radio', label: 'Radio', icon: 'radio', colour: '#8a4b2f', on: radioOn, sub: radioOn ? `${src} on` : 'Off', run: () => { begin(); toggleRadio(); } },
+        { id: 'photo', label: 'Photo', icon: 'camera', colour: '#4a5568', sub: 'Take a postcard', closes: true, run: () => setTimeout(() => lastInfo && takePostcard(lastInfo), 250) },
+        { id: 'cruise', label: 'Cruise', icon: 'gauge', colour: '#3b5b6e', on: state.cruise, sub: state.cruise ? `${Math.round(state.cruiseV * MPH)} mph` : (state.v > 2 ? 'Hold this speed' : 'Drive first'), run: toggleCruise },
+        { id: 'horn', label: 'Horn', icon: 'horn', colour: '#6e5a2a', sub: 'Beep', run: honk },
+        { id: 'board', label: 'Leaderboard', icon: 'trophy', colour: '#7a6326', sub: 'Furthest journeys', run: () => CarScreen.open('board') },
+        { id: 'album', label: 'Album', icon: 'album', colour: '#5b3a4e', sub: `${LR.getCards().length} postcards`, closes: true, run: () => { persist(true); location.href = 'album.html'; } },
+        { id: 'garage', label: 'Garage', icon: 'wrench', colour: '#2f4a3a', disabled: !garageHere, sub: garageHere ? 'Open now' : 'At fuel stations', closes: true, run: openGarage },
+        { id: 'settings', label: 'Settings', icon: 'cog', colour: '#3a3f46', sub: 'Engine, account\u2026', closes: true, run: openSettings },
+        { id: 'sound', label: 'Sound', icon: settings.muted ? 'mute' : 'speaker', colour: '#3a3f46', on: !settings.muted, sub: settings.muted ? 'Off' : 'On', run: () => { begin(); toggleSound(); } }
+      ];
+    },
     getClock: () => clockText(state.tod),
     beforeLeave: () => { persist(true); Account.pushSaveOnExit(); },
     onPlay: () => {
@@ -2304,6 +2535,8 @@
   });
   SpotifyAccount.onChange(syncButtons);
   ui.screenBtn.addEventListener('click', (e) => { e.currentTarget.blur(); begin(); CarScreen.toggle(); });
+  document.getElementById('carplayBtn').addEventListener('click', (e) => { e.currentTarget.blur(); begin(); CarScreen.toggle(); });
+  document.getElementById('carplayBtn').addEventListener('pointerdown', (e) => e.stopPropagation());
   ui.spOpenScreen.addEventListener('click', () => { closeSettings(); CarScreen.open(); });
   ui.spDisconnect.addEventListener('click', () => {
     SpotifyAccount.disconnect();
@@ -2342,8 +2575,8 @@
     ui.overText.textContent = `You ran dry near ${place}, with no fuel left in the tank and nothing in the jerry cans.`;
     ui.overStats.innerHTML = '';
     const rows = [
-      ['Distance', `${km.toFixed(1)} km`],
-      ['Best journey', `${stats.best.toFixed(1)} km`],
+      ['Distance', `${(km * 1000 / MILE).toFixed(1)} miles`],
+      ['Best journey', `${(stats.best * 1000 / MILE).toFixed(1)} miles`],
       ['Hitchhikers carried', String(state.carried)],
       ['Money earned', `\u00a3${state.earned}`]
     ];
@@ -2483,7 +2716,7 @@
   if (saved && saved.cam > 0) {
     const n = Math.floor((saved.cam + carX) / PXM / PLACE_EVERY);
     const cards = LR.getCards().length;
-    ui.resume.textContent = `Picking up the road near ${placeName(n)}. ${(stats.metres / 1000).toFixed(1)} km driven so far${cards ? `, ${cards} postcard${cards === 1 ? '' : 's'} in the album` : ''}.`;
+    ui.resume.textContent = `Picking up the road near ${placeName(n)}. ${(stats.metres / MILE).toFixed(1)} miles driven so far${cards ? `, ${cards} postcard${cards === 1 ? '' : 's'} in the album` : ''}.`;
   }
   if (document.fonts && document.fonts.load) {
     document.fonts.load('italic 54px "EB Garamond"').catch(() => {});
@@ -2496,7 +2729,7 @@
   if (qs.has('km')) state.cam = parseFloat(qs.get('km')) * 1000 * PXM;
 
   if (qs.has('debug')) {
-    window.__lr = {
+    window.__lr = { stats,
       state, ev, input,
       get spots() { return spots; },
       ensureSpots, ensureStations,

@@ -521,30 +521,33 @@ window.Minigames = (() => {
   function pumpGame(data) {
     let fuel = clamp((data && data.fuel) || 0, 0, 100);
     const start = fuel;
-    let holding = false, ramp = 0, spilled = false, spill = [], finishedAt = -1, clickT = 0;
-    const TARGET = 96;
+    let holding = false, ramp = 0, spilled = false, spill = [], finishedAt = -1, clickT = 0, spillT = 0;
+    const TARGET = 92;
     return {
       kicker: 'Fuel station', title: 'Fill up the tank',
       tap: 'Hold',
       get hint() {
-        if (spilled) return 'Whoops, it’s overflowing! Let go.';
-        if (fuel >= TARGET && !holding) return 'Full. Nicely done.';
-        if (fuel >= 88) return 'Nearly full… let go before it overflows!';
-        return 'Hold the trigger (or hold Space) to pump. It speeds up the longer you hold. Let go when the needle reaches the green, before it spills.';
+        if (spilled && holding) return 'Whoops, it’s overflowing! Let go.';
+        if (fuel >= TARGET && !holding) return spilled ? 'Full, with a bit down the side. Done.' : 'Full. Nicely done.';
+        if (fuel >= 84) return 'Nearly full. The pump slows down here. Let go when the needle is in the green.';
+        if (!holding && fuel > start + 1) return 'Hold again to keep pumping, or tap Not now to drive off with what you’ve got.';
+        return 'Hold the Hold button (or hold Space) to pump. Let go when the needle reaches the green part of the gauge.';
       },
       get progress() { return clamp((fuel - start) / Math.max(1, TARGET - start), 0, 1); },
       hold(on) { holding = on; if (!on) ramp = 0; },
       step(dt) {
         if (holding) {
-          ramp = Math.min(1, ramp + dt / 1.3);
-          const flow = 7 + 30 * ramp * ramp;
+          ramp = Math.min(1, ramp + dt / 1.2);
+          let flow = 5 + 13 * ramp;             // up to 18% a second
+          if (fuel > 84) flow *= 0.4;           // the nozzle slows near the top
           fuel += flow * dt;
           clickT -= dt;
           if (clickT <= 0) { RoadAudio.glug(); clickT = 0.5; }
           if (fuel > 100) {
-            spilled = true;
             fuel = 100;
-            for (let i = 0; i < 4; i++) spill.push({ x: 540 + rand(-6, 6), y: 214, vx: rand(-80, 80), vy: rand(-60, 20), age: 0 });
+            spilled = true;
+            spillT -= dt;
+            if (spillT <= 0) { spillT = 0.05; for (let i = 0; i < 3; i++) spill.push({ x: 540 + rand(-6, 6), y: 214, vx: rand(-80, 80), vy: rand(-60, 20), age: 0 }); }
           }
         }
         for (const d of spill) { d.age += dt; d.x += d.vx * dt; d.y += d.vy * dt; d.vy += 420 * dt; }
@@ -552,8 +555,9 @@ window.Minigames = (() => {
         if (!holding && fuel >= TARGET) {
           if (finishedAt < 0) finishedAt = 0;
           finishedAt += dt;
-          return finishedAt > 0.4;
+          return finishedAt > 0.5;
         }
+        finishedAt = -1;
         return false;
       },
       result() { return { fuel: Math.min(100, fuel), spilled }; },
@@ -566,7 +570,7 @@ window.Minigames = (() => {
         g.fillStyle = '#efe7d6'; g.font = '500 18px "IBM Plex Mono", monospace'; g.fillText('FUEL', 128, 90);
         g.fillStyle = '#20241f'; g.fillRect(92, 124, 126, 54);
         g.fillStyle = '#a6d08d'; g.font = '500 24px "IBM Plex Mono", monospace';
-        g.fillText(`${Math.max(0, fuel - start).toFixed(1)}%`, 104, 160);
+        g.fillText(`${Math.round(fuel)}%`, 112, 160);
         // hose
         g.strokeStyle = '#1d1e1f'; g.lineWidth = 10; g.lineCap = 'round';
         g.beginPath(); g.moveTo(240, 220); g.bezierCurveTo(330, 330, 420, 330, 500, 220); g.stroke();
@@ -617,13 +621,14 @@ window.Minigames = (() => {
     const total = left;
     let tank = clamp((data && data.fuel) || 0, 0, 100);
     let funnel = 0, holding = false, tilt = 0, spilled = 0, added = 0, drips = [], glugT = 0;
-    const FUNNEL = 10, POUR = 20, DRAIN = 11;
+    const FUNNEL = 12, POUR = 15, DRAIN = 11;
     return {
       kicker: 'By the roadside', title: 'Pour in the jerry can',
       tap: 'Pour',
       get hint() {
         if (funnel > FUNNEL * 0.85) return 'The funnel’s nearly overflowing. Let go!';
-        return 'Hold Pour (or hold Space) to tip the can. Pour in bursts so the funnel never overflows.';
+        if (tank >= 99.9) return 'The tank’s full.';
+        return 'Hold Pour (or hold Space) to tip the can. Let go when the funnel gets near the red line, then pour again.';
       },
       get progress() { return 1 - left / total; },
       hold(on) { holding = on; },
@@ -648,6 +653,7 @@ window.Minigames = (() => {
         spilled += d - into;
         for (const q of drips) { q.age += dt; q.x += q.vx * dt; q.y += q.vy * dt; q.vy += 420 * dt; }
         drips = drips.filter((q) => q.age < 1);
+        if (tank >= 99.9 && funnel <= 0.01) { holding = false; return true; }
         return left <= 0.01 && funnel <= 0.01;
       },
       result() { return { added, spilled }; },
@@ -789,6 +795,10 @@ window.Minigames = (() => {
   const tapUp = () => { if (game && game.hold) game.hold(false); };
   ui.tap.addEventListener('pointerup', tapUp);
   ui.tap.addEventListener('pointercancel', tapUp);
+  // stop phones treating a long hold as text selection or a long-press menu, which cancels the hold
+  root.addEventListener('contextmenu', (e) => e.preventDefault());
+  [ui.tap, ui.canvas].forEach((el) => el.addEventListener('touchstart', (e) => e.preventDefault(), { passive: false }));
+  addEventListener('blur', () => { if (game) { if (game.hold) game.hold(false); else game.up(); } });
   ui.close.addEventListener('click', () => finish('cancel'));
   ui.pay.addEventListener('click', () => { if (opts && game && game.pay && (opts.money || 0) >= game.pay.cost) finish('paid'); });
   addEventListener('resize', () => { if (game) fit(); });

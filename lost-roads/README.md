@@ -52,7 +52,7 @@ wrangler.jsonc         Cloudflare settings
 
 ## How the journey works
 
-- **Fuel:** fuel is only used while you're pressing the accelerator. Coasting and braking are free, and cruise control uses a little, because it holds the accelerator for you. Fuel stations are unevenly spaced (roughly 1.5 to 4 km apart) and all of them are open. The HUD shows how far it is to the next one.
+- **Fuel:** fuel is only used while you're pressing the accelerator. Coasting and braking are free, and cruise control uses a little, because it holds the accelerator for you. Fuel stations are unevenly spaced (roughly 1 to 2.5 miles apart) and all of them are open. The HUD shows how far it is to the next one.
 - **Filling up is a minigame:** stop at the pump and press **E** (or tap **Fill up**). Hold the trigger (or hold Space) to pump. It speeds up the longer you hold, so let go when the needle reaches the green, before it overflows. Filling up also refills any empty jerry cans.
 - **The garage:** stop at any fuel station and press **G** (or tap **Garage**) to buy:
   - **Jerry cans** (£20, up to 3). Each holds 60% of a tank, comes full, and refills whenever you fill up at a pump.
@@ -70,6 +70,35 @@ wrangler.jsonc         Cloudflare settings
 - **Other things on the road:** deer leaping across (mostly at night), £5 and £10 notes on the verge, **viewpoints** where a gallery buys your postcard for £6, and thunderstorms.
 - **Landscapes (10):** Pine Valley, Heather Moor, Salt Coast, High Pass, Rust Woods, Birch Wood, Old Orchard, Wind Farm Ridge, Dune Road and Peat Bog.
 
+## The car screen
+
+Everything that used to be a button on the screen now lives on the car's touchscreen. Open it with **N** or the **Car screen** button at the side of the screen (on phones, between Brake and Drive). Its home screen has these apps:
+
+- **Music:** your Spotify, if it's connected.
+- **Radio:** turn the car radio, Spotify link or Spotify on and off.
+- **Photo:** take a postcard.
+- **Cruise:** hold your current speed.
+- **Horn**
+- **Leaderboard:** the furthest journeys. Anyone can see it, signed in or not.
+- **Album:** your postcards.
+- **Garage:** only works when you're stopped at a fuel station.
+- **Settings**
+- **Sound:** turn all game sound on or off.
+
+On phones, **Brake**, **Drive** and the context button (Fill up, Clear road and so on) stay on screen. Keyboard shortcuts (P, C, H, R, M, Esc) still work on a computer.
+
+## Customising the car
+
+The garage also sells:
+- **Paint (£15 each):** oxide red, racing green, navy, cream, mustard, faded sky, charcoal or plum.
+- **Body shapes:**
+  - Hatchback: £25
+  - Pickup (hitchhikers ride in the bed): £45
+  - Coupé: £60
+  - Camper van: £70
+
+Paint and bodies you buy are **yours to keep**, even after the journey ends and you start a new one. They're saved with your account if you're signed in. Switching back to something you already own is free.
+
 ## Phones and computers
 
 The game detects which you're on and adjusts:
@@ -84,7 +113,7 @@ Progress always saves on the device first. When a player signs in (Settings → 
 - when they leave the page
 - whenever they take a postcard
 
-Signing in on another phone or computer picks up where they left off. Their furthest single journey goes on the **leaderboard** (`leaderboard.html`, linked from the game, the settings and the game-over screen).
+Signing in on another phone or computer picks up where they left off. Their furthest single journey goes on the **leaderboard**. Anyone can view the leaderboard, signed in or not: in the game (Car screen → Leaderboard), on the game-over screen, or as its own page at `yoursite/leaderboard.html`. Only signed-in players appear on it.
 
 Accounts are just a username and password, with no email. Behind the scenes each username becomes a stand-in address that's never emailed. A forgotten password can't be reset, and the game tells players this.
 
@@ -171,4 +200,21 @@ Near the top of `js/game.js`:
 
 Money, cans and seats are set near the top of the journey section in `js/game.js`: `CAN_PRICE`, `CAN_FUEL` (how much a can puts in), `MAX_CANS`, `SEAT_PRICES` and `MAX_SEATS`. The minigames live in `js/minigames.js`, and each one's "pay someone" price is in its `pay` line. Hitchhiker names and what they say are in `NAMES` and `CHAT`, so add your own.
 
-For testing, add `?t=0.8` to the address to jump to dusk, or `?km=5` to jump 5 km down the road.
+## Checking an update went live
+
+The start screen shows the version number (for example "Version 10"). If you still see an older number after uploading:
+
+1. Make sure the files went into the **top level** of the GitHub repo, replacing the old ones. `index.html` should sit next to the `js` and `css` folders, not inside a `lost-roads` folder.
+2. In Cloudflare, open the project's Deployments and check that the newest commit has built successfully.
+3. Hard-refresh the page (Ctrl+Shift+R, or Cmd+Shift+R on a Mac). On a phone, close the tab and open it again.
+
+The `_headers` file and the `?v=` numbers on the script tags make browsers fetch the new files every time, so this should only be needed once.
+
+## Dials and rain sound
+
+- **Speedometer:** a small round dial in miles per hour (0 to 80), with a needle that swings up and settles like a real one. The word CRUISE lights up on the dial when cruise control is on.
+- **Odometer:** a rolling mechanical counter under the needle. Five wheels count whole miles and the white wheel on the right counts tenths. The wheels roll over into each other, and you'll hear a soft tick every tenth of a mile.
+- **Everything is in miles now:** speed, the next fuel station, the postcard stamp, the game-over screen and both leaderboards. The database still stores kilometres, so existing scores are fine.
+- **Rain sound** (Settings, Rain): Gentle patter, Heavy downpour, Rain on the roof, or no rain sound, plus its own volume slider. Choosing one plays a short preview.
+
+For testing, add `?t=0.8` to the address to jump to dusk, or `?km=5` to jump 5 km (about 3 miles) down the road.

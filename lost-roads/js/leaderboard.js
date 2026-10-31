@@ -8,7 +8,7 @@
     if (mine) li.className = 'mine';
     const r = document.createElement('span'); r.className = 'rank'; r.textContent = String(rank);
     const n = document.createElement('span'); n.className = 'who'; n.textContent = name;
-    const k = document.createElement('span'); k.className = 'km'; k.textContent = `${Number(km).toFixed(1)} km`;
+    const k = document.createElement('span'); k.className = 'km'; k.textContent = `${(Number(km) * 0.621371).toFixed(1)} miles`;
     li.append(r, n, k);
     return li;
   }

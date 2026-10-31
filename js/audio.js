@@ -8,6 +8,15 @@ window.RoadAudio = (() => {
   let engineVol = 0.8;
   let engineName = 'petrol';
   let previewUntil = 0;
+  let rainStyle = 'patter', rainVol = 0.8, rainPreviewUntil = 0, lastUpdate = 0, dropDebt = 0;
+  let rainBus, hissFilter, hissGain, rumbleGain;
+  // Each rain style mixes a hiss, a low rumble and individual drops
+  const RAIN = {
+    patter:   { hissF: 4200, hissQ: 0.5, hiss: 0.055, rumble: 0.0,  rate: 30, drop: 'ping' },
+    downpour: { hissF: 1900, hissQ: 0.4, hiss: 0.1,   rumble: 0.14, rate: 20, drop: 'splat' },
+    roof:     { hissF: 950,  hissQ: 0.8, hiss: 0.045, rumble: 0.06, rate: 24, drop: 'tap' },
+    off:      null
+  };
   let nextChord = 0;
   let chordIndex = 0;
 
@@ -115,7 +124,31 @@ window.RoadAudio = (() => {
     applyEngineShape();
 
     roadGain = loopNoise('brown', 'lowpass', 420, 0.7);
-    rainGain = loopNoise('white', 'highpass', 2200, 0.5);
+    rainBus = ctx.createGain();
+    rainBus.connect(master);
+    {
+      const src = ctx.createBufferSource();
+      src.buffer = noiseBuffer('white');
+      src.loop = true;
+      hissFilter = ctx.createBiquadFilter();
+      hissFilter.type = 'bandpass';
+      hissGain = ctx.createGain();
+      hissGain.gain.value = 0;
+      src.connect(hissFilter).connect(hissGain).connect(rainBus);
+      src.start();
+      const src2 = ctx.createBufferSource();
+      src2.buffer = noiseBuffer('brown');
+      src2.loop = true;
+      const lp = ctx.createBiquadFilter();
+      lp.type = 'lowpass';
+      lp.frequency.value = 320;
+      rumbleGain = ctx.createGain();
+      rumbleGain.gain.value = 0;
+      src2.connect(lp).connect(rumbleGain).connect(rainBus);
+      src2.start(0, 0.7);
+    }
+    applyRainStyle();
+    lastUpdate = ctx.currentTime;
 
     // Car radio: soft pads into a feedback delay so they smear into the fog
     padBus = ctx.createGain();
@@ -190,7 +223,7 @@ window.RoadAudio = (() => {
       engGain.gain.setTargetAtTime(0, t, 0.2);
     }
     roadGain.gain.setTargetAtTime((running ? 1 : 0) * speedNorm * 0.11, t, 0.3);
-    rainGain.gain.setTargetAtTime(rain * 0.07, t, 0.8);
+    updateRain(rain, t);
     scheduleRadio();
   }
 
@@ -210,6 +243,93 @@ window.RoadAudio = (() => {
       src.start(t + off);
       src.stop(t + off + 0.08);
     });
+  }
+
+  // ---- rain ----
+  function applyRainStyle() {
+    if (!ctx) return;
+    const st = RAIN[rainStyle];
+    if (!st) return;
+    hissFilter.frequency.setTargetAtTime(st.hissF, ctx.currentTime, 0.1);
+    hissFilter.Q.setTargetAtTime(st.hissQ, ctx.currentTime, 0.1);
+  }
+  function drop(at, kind, amt) {
+    const v = rainVol * (0.6 + Math.random() * 0.6) * amt;
+    if (kind === 'ping') {
+      const o = ctx.createOscillator();
+      o.type = 'sine';
+      const f = 2400 + Math.random() * 3600;
+      o.frequency.setValueAtTime(f, at);
+      o.frequency.exponentialRampToValueAtTime(f * 0.6, at + 0.02);
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.022 * v, at);
+      g.gain.exponentialRampToValueAtTime(0.0005, at + 0.03);
+      o.connect(g).connect(rainBus);
+      o.start(at); o.stop(at + 0.04);
+    } else if (kind === 'tap') {
+      const o = ctx.createOscillator();
+      o.type = 'triangle';
+      const f = 160 + Math.random() * 180;
+      o.frequency.setValueAtTime(f, at);
+      o.frequency.exponentialRampToValueAtTime(f * 0.7, at + 0.06);
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.06 * v, at);
+      g.gain.exponentialRampToValueAtTime(0.0005, at + 0.08);
+      o.connect(g).connect(rainBus);
+      o.start(at); o.stop(at + 0.1);
+      clickBurst(at, 0.012, 0.05 * v, 1600);
+    } else {
+      clickBurst(at, 0.035 + Math.random() * 0.03, 0.08 * v, 900 + Math.random() * 1400);
+    }
+  }
+  function clickBurst(at, dur, vol, freq) {
+    const src = ctx.createBufferSource();
+    src.buffer = noiseBuffer('white');
+    const f = ctx.createBiquadFilter();
+    f.type = 'bandpass';
+    f.frequency.value = freq;
+    f.Q.value = 1.2;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(vol, at);
+    g.gain.exponentialRampToValueAtTime(0.0005, at + dur);
+    src.connect(f).connect(g).connect(rainBus);
+    src.start(at, Math.random() * 1.5);
+    src.stop(at + dur + 0.02);
+  }
+  function updateRain(rain, t) {
+    const dt = Math.min(0.1, Math.max(0, t - lastUpdate));
+    lastUpdate = t;
+    const st = RAIN[rainStyle];
+    const preview = t < rainPreviewUntil ? 0.85 : 0;
+    const r = st ? Math.max(rain, preview) : 0;
+    hissGain.gain.setTargetAtTime(st ? st.hiss * r * rainVol : 0, t, 0.6);
+    rumbleGain.gain.setTargetAtTime(st ? st.rumble * r * rainVol : 0, t, 0.6);
+    if (!st || r < 0.02 || muted) { dropDebt = 0; return; }
+    dropDebt += st.rate * r * dt;
+    while (dropDebt >= 1) {
+      dropDebt -= 1;
+      drop(t + Math.random() * 0.05, st.drop, r);
+    }
+  }
+  function setRainStyle(style) { rainStyle = style in RAIN ? style : 'patter'; applyRainStyle(); }
+  function setRainVolume(v) { rainVol = v; }
+  function previewRain() { if (ctx) rainPreviewUntil = ctx.currentTime + 2.5; }
+  let lastTick = 0;
+  function tick() {
+    if (!ctx || muted || ctx.currentTime - lastTick < 0.05) return;
+    lastTick = ctx.currentTime;
+    const src = ctx.createBufferSource();
+    src.buffer = noiseBuffer('white');
+    const f = ctx.createBiquadFilter();
+    f.type = 'bandpass';
+    f.frequency.value = 3200;
+    const g = ctx.createGain();
+    const at = ctx.currentTime;
+    g.gain.setValueAtTime(0.06, at);
+    g.gain.exponentialRampToValueAtTime(0.0005, at + 0.018);
+    src.connect(f).connect(g).connect(master);
+    src.start(at);
+    src.stop(at + 0.03);
   }
 
   // little sound effects
@@ -415,6 +535,10 @@ window.RoadAudio = (() => {
     setEngineVolume,
     preview,
     chime,
+    tick,
+    setRainStyle,
+    setRainVolume,
+    previewRain,
     horn,
     thunder,
     bump,

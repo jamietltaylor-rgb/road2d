@@ -515,7 +515,197 @@ window.Minigames = (() => {
     };
   }
 
-  const GAMES = { tree: treeGame, rocks: rocksGame, sheep: sheepGame, mud: mudGame, tyre: tyreGame };
+  // ---------------------------------------------------------------------------
+  // 6. Fill up at the pump: hold to pump, let go right at the top
+  // ---------------------------------------------------------------------------
+  function pumpGame(data) {
+    let fuel = clamp((data && data.fuel) || 0, 0, 100);
+    const start = fuel;
+    let holding = false, ramp = 0, spilled = false, spill = [], finishedAt = -1, clickT = 0, spillT = 0;
+    const TARGET = 92;
+    return {
+      kicker: 'Fuel station', title: 'Fill up the tank',
+      tap: 'Hold',
+      get hint() {
+        if (spilled && holding) return 'Whoops, it’s overflowing! Let go.';
+        if (fuel >= TARGET && !holding) return spilled ? 'Full, with a bit down the side. Done.' : 'Full. Nicely done.';
+        if (fuel >= 84) return 'Nearly full. The pump slows down here. Let go when the needle is in the green.';
+        if (!holding && fuel > start + 1) return 'Hold again to keep pumping, or tap Not now to drive off with what you’ve got.';
+        return 'Hold the Hold button (or hold Space) to pump. Let go when the needle reaches the green part of the gauge.';
+      },
+      get progress() { return clamp((fuel - start) / Math.max(1, TARGET - start), 0, 1); },
+      hold(on) { holding = on; if (!on) ramp = 0; },
+      step(dt) {
+        if (holding) {
+          ramp = Math.min(1, ramp + dt / 1.2);
+          let flow = 5 + 13 * ramp;             // up to 18% a second
+          if (fuel > 84) flow *= 0.4;           // the nozzle slows near the top
+          fuel += flow * dt;
+          clickT -= dt;
+          if (clickT <= 0) { RoadAudio.glug(); clickT = 0.5; }
+          if (fuel > 100) {
+            fuel = 100;
+            spilled = true;
+            spillT -= dt;
+            if (spillT <= 0) { spillT = 0.05; for (let i = 0; i < 3; i++) spill.push({ x: 540 + rand(-6, 6), y: 214, vx: rand(-80, 80), vy: rand(-60, 20), age: 0 }); }
+          }
+        }
+        for (const d of spill) { d.age += dt; d.x += d.vx * dt; d.y += d.vy * dt; d.vy += 420 * dt; }
+        spill = spill.filter((d) => d.age < 1.2);
+        if (!holding && fuel >= TARGET) {
+          if (finishedAt < 0) finishedAt = 0;
+          finishedAt += dt;
+          return finishedAt > 0.5;
+        }
+        finishedAt = -1;
+        return false;
+      },
+      result() { return { fuel: Math.min(100, fuel), spilled }; },
+      draw() {
+        g.fillStyle = '#b7bfbf'; g.fillRect(0, 0, GW, GH);
+        g.fillStyle = '#9ca4a4'; g.fillRect(0, 330, GW, GH - 330);
+        // pump
+        g.fillStyle = '#c9c1b0'; roundRect(70, 60, 170, 300, 10); g.fill();
+        g.fillStyle = C.paint; g.fillRect(70, 60, 170, 46);
+        g.fillStyle = '#efe7d6'; g.font = '500 18px "IBM Plex Mono", monospace'; g.fillText('FUEL', 128, 90);
+        g.fillStyle = '#20241f'; g.fillRect(92, 124, 126, 54);
+        g.fillStyle = '#a6d08d'; g.font = '500 24px "IBM Plex Mono", monospace';
+        g.fillText(`${Math.round(fuel)}%`, 112, 160);
+        // hose
+        g.strokeStyle = '#1d1e1f'; g.lineWidth = 10; g.lineCap = 'round';
+        g.beginPath(); g.moveTo(240, 220); g.bezierCurveTo(330, 330, 420, 330, 500, 220); g.stroke();
+        g.lineCap = 'butt';
+        // car side with the filler flap
+        g.fillStyle = C.paint; roundRect(470, 150, 330, 170, 20); g.fill();
+        g.fillStyle = C.paintDark; g.fillRect(470, 270, 330, 50);
+        g.fillStyle = '#2a2a2a'; g.beginPath(); g.arc(560, 214, 16, 0, Math.PI * 2); g.fill();
+        // nozzle
+        g.save(); g.translate(512, 206); g.rotate(holding ? 0.05 : 0);
+        g.fillStyle = '#2b2d2e'; roundRect(-30, -16, 46, 30, 6); g.fill();
+        g.fillStyle = '#4f5a3a'; g.fillRect(14, -6, 36, 10);
+        g.fillStyle = holding ? '#efe7d6' : '#6d6f6c'; g.fillRect(-24, 12, 18, 14);
+        g.restore();
+        g.fillStyle = 'rgba(160,140,60,0.85)';
+        for (const d of spill) g.fillRect(d.x, d.y, 4, 4);
+        // fuel gauge
+        const gx = 650, gy = 110, R = 70;
+        g.lineWidth = 12;
+        g.strokeStyle = 'rgba(20,20,20,0.3)';
+        g.beginPath(); g.arc(gx, gy, R, Math.PI, 0); g.stroke();
+        const ang = (v) => Math.PI + (v / 100) * Math.PI;
+        g.strokeStyle = '#7fae6b';
+        g.beginPath(); g.arc(gx, gy, R, ang(TARGET), ang(100)); g.stroke();
+        g.strokeStyle = '#c0533a';
+        g.beginPath(); g.arc(gx, gy, R, ang(99.5), ang(100) + 0.08); g.stroke();
+        g.strokeStyle = spilled ? '#e0805f' : '#efe7d6';
+        g.lineWidth = 4;
+        g.beginPath(); g.moveTo(gx, gy); g.lineTo(gx + Math.cos(ang(fuel)) * (R + 4), gy + Math.sin(ang(fuel)) * (R + 4)); g.stroke();
+        g.fillStyle = '#efe7d6';
+        g.font = '500 12px "IBM Plex Mono", monospace';
+        g.fillText('E', gx - R - 18, gy + 4);
+        g.fillText('F', gx + R + 10, gy + 4);
+      },
+      down() { this.hold(true); },
+      move() {},
+      up() { this.hold(false); },
+      key(code) { if (code === 'Space' || code === 'KeyE' || code === 'Enter') this.hold(true); },
+      keyUp(code) { if (code === 'Space' || code === 'KeyE' || code === 'Enter') this.hold(false); }
+    };
+  }
+
+  // ---------------------------------------------------------------------------
+  // 7. Jerry can: pour into the funnel without letting it overflow
+  // ---------------------------------------------------------------------------
+  function canGame(data) {
+    let left = (data && data.amount) || 60;
+    const total = left;
+    let tank = clamp((data && data.fuel) || 0, 0, 100);
+    let funnel = 0, holding = false, tilt = 0, spilled = 0, added = 0, drips = [], glugT = 0;
+    const FUNNEL = 12, POUR = 15, DRAIN = 11;
+    return {
+      kicker: 'By the roadside', title: 'Pour in the jerry can',
+      tap: 'Pour',
+      get hint() {
+        if (funnel > FUNNEL * 0.85) return 'The funnel’s nearly overflowing. Let go!';
+        if (tank >= 99.9) return 'The tank’s full.';
+        return 'Hold Pour (or hold Space) to tip the can. Let go when the funnel gets near the red line, then pour again.';
+      },
+      get progress() { return 1 - left / total; },
+      hold(on) { holding = on; },
+      step(dt) {
+        tilt += ((holding && left > 0 ? 1 : 0) - tilt) * Math.min(1, dt * 7);
+        const pour = tilt > 0.6 ? Math.min(left, POUR * dt * tilt) : 0;
+        left -= pour;
+        funnel += pour;
+        if (pour > 0) { glugT -= dt; if (glugT <= 0) { RoadAudio.glug(); glugT = 0.45; } }
+        if (funnel > FUNNEL) {
+          const over = funnel - FUNNEL;
+          spilled += over;
+          funnel = FUNNEL;
+          for (let i = 0; i < 3; i++) drips.push({ x: 430 + rand(-40, 40), y: 250, vx: rand(-60, 60), vy: rand(-40, 30), age: 0 });
+        }
+        const d = Math.min(funnel, DRAIN * dt);
+        funnel -= d;
+        const room = Math.max(0, 100 - tank);
+        const into = Math.min(room, d);
+        tank += into;
+        added += into;
+        spilled += d - into;
+        for (const q of drips) { q.age += dt; q.x += q.vx * dt; q.y += q.vy * dt; q.vy += 420 * dt; }
+        drips = drips.filter((q) => q.age < 1);
+        if (tank >= 99.9 && funnel <= 0.01) { holding = false; return true; }
+        return left <= 0.01 && funnel <= 0.01;
+      },
+      result() { return { added, spilled }; },
+      draw() {
+        g.fillStyle = C.sky; g.fillRect(0, 0, GW, GH);
+        g.fillStyle = C.field; g.fillRect(0, 340, GW, GH - 340);
+        // car side
+        g.fillStyle = C.paint; roundRect(300, 290, 500, 120, 18); g.fill();
+        g.fillStyle = '#2a2a2a'; g.beginPath(); g.arc(430, 300, 12, 0, Math.PI * 2); g.fill();
+        // funnel
+        g.fillStyle = '#c8c8c0';
+        g.beginPath(); g.moveTo(380, 210); g.lineTo(480, 210); g.lineTo(440, 280); g.lineTo(440, 300); g.lineTo(420, 300); g.lineTo(420, 280); g.closePath(); g.fill();
+        const lvl = funnel / FUNNEL;
+        if (lvl > 0) {
+          const y = 280 - lvl * 70, half = 10 + (280 - y) * (50 / 70);
+          g.fillStyle = lvl > 0.85 ? '#c0533a' : '#b49a43';
+          g.beginPath(); g.moveTo(430 - half, y); g.lineTo(430 + half, y); g.lineTo(440, 280); g.lineTo(420, 280); g.closePath(); g.fill();
+        }
+        g.strokeStyle = '#c0533a'; g.lineWidth = 2; g.setLineDash([5, 4]);
+        g.beginPath(); g.moveTo(374, 216); g.lineTo(486, 216); g.stroke(); g.setLineDash([]);
+        // the can, tipping
+        g.save();
+        g.translate(300, 150);
+        g.rotate(tilt * 1.1);
+        g.fillStyle = '#c0533a'; roundRect(-70, -60, 120, 150, 10); g.fill();
+        g.fillStyle = '#9d3f2b'; g.fillRect(-60, -40, 100, 10); g.fillRect(-60, 60, 100, 10);
+        g.fillStyle = '#2b2d2e'; g.fillRect(-40, -78, 50, 18);
+        g.fillStyle = '#d7d2c4'; g.fillRect(40, -66, 50, 14);
+        g.restore();
+        if (tilt > 0.6 && left > 0) {
+          g.strokeStyle = '#b49a43'; g.lineWidth = 6;
+          g.beginPath(); g.moveTo(370, 150 + 40 * tilt); g.quadraticCurveTo(420, 170, 428, 214); g.stroke();
+        }
+        g.fillStyle = 'rgba(180,154,67,0.9)';
+        for (const q of drips) g.fillRect(q.x, q.y, 4, 4);
+        // can level and tank gauge
+        g.fillStyle = 'rgba(20,20,20,0.3)'; g.fillRect(620, 70, 24, 200); g.fillRect(690, 70, 24, 200);
+        g.fillStyle = '#c0533a'; g.fillRect(620, 70 + 200 * (1 - left / total), 24, 200 * (left / total));
+        g.fillStyle = '#7fae6b'; g.fillRect(690, 70 + 200 * (1 - tank / 100), 24, 200 * (tank / 100));
+        g.fillStyle = '#26231f'; g.font = '500 11px "IBM Plex Mono", monospace';
+        g.fillText('CAN', 620, 290); g.fillText('TANK', 686, 290);
+        if (spilled > 0.5) g.fillText(`spilt ${spilled.toFixed(0)}%`, 600, 312);
+      },
+      down() { this.hold(true); },
+      move() {},
+      up() { this.hold(false); },
+      key(code) { if (code === 'Space' || code === 'KeyE' || code === 'Enter') this.hold(true); },
+      keyUp(code) { if (code === 'Space' || code === 'KeyE' || code === 'Enter') this.hold(false); }
+    };
+  }
+
+  const GAMES = { tree: treeGame, rocks: rocksGame, sheep: sheepGame, mud: mudGame, tyre: tyreGame, pump: pumpGame, can: canGame };
 
   // ---------------------------------------------------------------------------
   // Running a game
@@ -558,20 +748,21 @@ window.Minigames = (() => {
     if (game.end) game.end();
     cancelAnimationFrame(raf);
     const o = opts;
-    const cost = game.pay.cost;
+    const cost = game.pay ? game.pay.cost : 0;
+    const res = game.result ? game.result() : null;
     game = null;
     opts = null;
     root.classList.remove('open');
     root.setAttribute('aria-hidden', 'true');
-    if (result === 'won' && o.onWin) o.onWin();
+    if (result === 'won' && o.onWin) o.onWin(res);
     if (result === 'paid' && o.onPay) o.onPay(cost);
-    if (result === 'cancel' && o.onCancel) o.onCancel();
+    if (result === 'cancel' && o.onCancel) o.onCancel(res);
   }
 
   function open(kind, options) {
     if (game) return;
     opts = options || {};
-    game = GAMES[kind]();
+    game = GAMES[kind](opts.data);
     finished = false;
     ui.kicker.textContent = game.kicker;
     ui.title.textContent = game.title;
@@ -579,9 +770,12 @@ window.Minigames = (() => {
     ui.tap.hidden = !game.tap;
     ui.tap.textContent = game.tap || '';
     const money = opts.money || 0;
-    ui.pay.textContent = `${game.pay.label} (£${game.pay.cost})`;
-    ui.pay.disabled = money < game.pay.cost;
-    ui.pay.title = ui.pay.disabled ? 'You don’t have enough money' : '';
+    ui.pay.hidden = !game.pay;
+    if (game.pay) {
+      ui.pay.textContent = `${game.pay.label} (£${game.pay.cost})`;
+      ui.pay.disabled = money < game.pay.cost;
+      ui.pay.title = ui.pay.disabled ? 'You don’t have enough money' : '';
+    }
     if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
     root.classList.add('open');
     root.setAttribute('aria-hidden', 'false');
@@ -593,9 +787,20 @@ window.Minigames = (() => {
   const release = () => { if (game) game.up(); };
   ui.canvas.addEventListener('pointerup', release);
   ui.canvas.addEventListener('pointercancel', release);
-  ui.tap.addEventListener('pointerdown', (e) => { e.preventDefault(); if (game && game.press) game.press(); });
+  ui.tap.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    if (!game) return;
+    if (game.hold) { ui.tap.setPointerCapture(e.pointerId); game.hold(true); } else if (game.press) game.press();
+  });
+  const tapUp = () => { if (game && game.hold) game.hold(false); };
+  ui.tap.addEventListener('pointerup', tapUp);
+  ui.tap.addEventListener('pointercancel', tapUp);
+  // stop phones treating a long hold as text selection or a long-press menu, which cancels the hold
+  root.addEventListener('contextmenu', (e) => e.preventDefault());
+  [ui.tap, ui.canvas].forEach((el) => el.addEventListener('touchstart', (e) => e.preventDefault(), { passive: false }));
+  addEventListener('blur', () => { if (game) { if (game.hold) game.hold(false); else game.up(); } });
   ui.close.addEventListener('click', () => finish('cancel'));
-  ui.pay.addEventListener('click', () => { if (opts && game && (opts.money || 0) >= game.pay.cost) finish('paid'); });
+  ui.pay.addEventListener('click', () => { if (opts && game && game.pay && (opts.money || 0) >= game.pay.cost) finish('paid'); });
   addEventListener('resize', () => { if (game) fit(); });
 
   return {
@@ -605,7 +810,7 @@ window.Minigames = (() => {
       if (code === 'Escape') { finish('cancel'); return; }
       if (game.key) game.key(code);
     },
-    costOf(kind) { return GAMES[kind]().pay.cost; },
+    keyUp(code) { if (game && game.keyUp) game.keyUp(code); },
     get isOpen() { return !!game; }
   };
 })();

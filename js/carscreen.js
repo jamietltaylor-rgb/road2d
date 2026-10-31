@@ -19,7 +19,18 @@ window.CarScreen = (() => {
     next: '<path d="M18 5v14M5 5l10 7-10 7z" fill="currentColor"/>',
     play: '<path d="M7 4.5l13 7.5-13 7.5z" fill="currentColor"/>',
     pause: '<path d="M7 4.5h3.5v15H7zM13.5 4.5H17v15h-3.5z" fill="currentColor"/>',
-    vol: '<path d="M4 9.5h3.5L12 6v12l-4.5-3.5H4z" fill="currentColor"/><path d="M15.5 9a4 4 0 0 1 0 6"/>'
+    vol: '<path d="M4 9.5h3.5L12 6v12l-4.5-3.5H4z" fill="currentColor"/><path d="M15.5 9a4 4 0 0 1 0 6"/>',
+    home: '<rect x="4" y="4" width="6.5" height="6.5" rx="1.6"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="1.6"/><rect x="4" y="13.5" width="6.5" height="6.5" rx="1.6"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.6"/>',
+    trophy: '<path d="M8 4h8v5a4 4 0 0 1-8 0z"/><path d="M8 6H5a3 3 0 0 0 3 4M16 6h3a3 3 0 0 1-3 4M12 13v4M8.5 20h7"/>',
+    radio: '<rect x="3.5" y="8" width="17" height="11" rx="2"/><path d="M7 8l9-4"/><circle cx="15.5" cy="13.5" r="2.5"/><path d="M6.5 12h4M6.5 15h4"/>',
+    camera: '<path d="M4 8h3l1.5-2.5h7L17 8h3v11H4z"/><circle cx="12" cy="13.5" r="3.5"/>',
+    horn: '<path d="M4 10v4h3l7 4V6L7 10z"/><path d="M17 9.5c1 .8 1.5 1.6 1.5 2.5s-.5 1.7-1.5 2.5M19.5 7c1.6 1.4 2.5 3.1 2.5 5s-.9 3.6-2.5 5"/>',
+    gauge: '<path d="M4 16a8 8 0 1 1 16 0"/><path d="M12 16l4-5"/><circle cx="12" cy="16" r="1.4" fill="currentColor"/>',
+    album: '<rect x="4" y="5" width="16" height="14" rx="1.5"/><path d="M4 15l4.5-4 4 3.5 2.5-2 5 4"/><circle cx="15.5" cy="9" r="1.5"/>',
+    wrench: '<path d="M14.5 4.5a4 4 0 0 0-4.8 5.3L4.5 15a2.1 2.1 0 0 0 3 3l5.2-5.2a4 4 0 0 0 5.3-4.8l-2.4 2.4-2.3-.6-.6-2.3z"/>',
+    cog: '<circle cx="12" cy="12" r="3"/><path d="M12 3.5v2.5M12 18v2.5M3.5 12H6M18 12h2.5M6 6l1.8 1.8M16.2 16.2L18 18M6 18l1.8-1.8M16.2 7.8L18 6"/>',
+    speaker: '<path d="M4 9.5h3.5L12 6v12l-4.5-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11"/>',
+    mute: '<path d="M4 9.5h3.5L12 6v12l-4.5-3.5H4z"/><path d="M16 9.5l5 5M21 9.5l-5 5"/>'
   };
   const icon = (name) => `<svg viewBox="0 0 24 24" aria-hidden="true">${ICON[name]}</svg>`;
   const esc = (t) => String(t == null ? '' : t).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -36,14 +47,24 @@ window.CarScreen = (() => {
   el.innerHTML = `
     <div class="cs-frame" role="dialog" aria-label="Car screen">
       <nav class="cs-rail">
+        <button type="button" data-view="home" aria-label="Home">${icon('home')}</button>
         <button type="button" data-view="now" aria-label="Now playing">${icon('note')}</button>
         <button type="button" data-view="playlists" aria-label="Playlists">${icon('list')}</button>
         <button type="button" data-view="liked" aria-label="Liked songs">${icon('heart')}</button>
         <button type="button" data-view="search" aria-label="Search">${icon('search')}</button>
+        <button type="button" data-view="board" aria-label="Leaderboard">${icon('trophy')}</button>
         <span class="cs-clock" id="csClock"></span>
         <button type="button" class="cs-close" id="csClose" aria-label="Close the car screen">${icon('close')}</button>
       </nav>
       <div class="cs-main">
+        <section class="cs-view" data-view="home">
+          <div class="cs-apps" id="csApps"></div>
+        </section>
+        <section class="cs-view" data-view="board">
+          <h4>Furthest journeys</h4>
+          <ol class="cs-board" id="csBoard"></ol>
+          <p class="cs-empty" id="csBoardNote"></p>
+        </section>
         <section class="cs-view" data-view="connect">
           <div class="cs-connect">
             <div class="cs-badge">${icon('note')}</div>
@@ -84,7 +105,8 @@ window.CarScreen = (() => {
     clock: $('csClock'), connectText: $('csConnectText'), connectFine: $('csConnectFine'), connect: $('csConnect'),
     art: $('csArt'), title: $('csTitle'), artist: $('csArtist'), pos: $('csPos'), dur: $('csDur'), bar: $('csBar'),
     toggle: $('csToggle'), vol: $('csVol'), device: $('csDevice'), playlists: $('csPlaylists'), liked: $('csLiked'),
-    search: $('csSearch'), results: $('csResults'), error: $('csError')
+    search: $('csSearch'), results: $('csResults'), error: $('csError'),
+    apps: $('csApps'), board: $('csBoard'), boardNote: $('csBoardNote')
   };
 
   function showError(msg) {
@@ -93,16 +115,49 @@ window.CarScreen = (() => {
     if (msg) showError.t = setTimeout(() => (ui.error.textContent = ''), 6000);
   }
 
+  const MUSIC_VIEWS = ['now', 'playlists', 'liked', 'search'];
   function setView(v) {
-    if (!S.connected) v = 'connect';
+    if (MUSIC_VIEWS.includes(v) && !S.connected) v = 'connect';
     view = v;
     el.querySelectorAll('.cs-view').forEach((s) => s.classList.toggle('active', s.dataset.view === v));
-    el.querySelectorAll('.cs-rail [data-view]').forEach((b) => b.classList.toggle('active', b.dataset.view === v));
-    el.classList.toggle('signed-out', !S.connected);
+    el.querySelectorAll('.cs-rail [data-view]').forEach((b) => b.classList.toggle('active', b.dataset.view === v || (v === 'connect' && b.dataset.view === 'now')));
     if (v === 'connect') renderConnect();
+    if (v === 'home') renderHome();
+    if (v === 'board') loadBoard();
     if (v === 'playlists' && !loaded.playlists) loadPlaylists();
     if (v === 'liked' && !loaded.liked) loadLiked();
     if (v === 'search') setTimeout(() => ui.search.focus(), 50);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Home screen: the car's apps
+  // ---------------------------------------------------------------------------
+  function renderHome() {
+    const apps = hooks.apps ? hooks.apps() : [];
+    const html = apps.map((a) => `
+      <button type="button" class="cs-app${a.on ? ' on' : ''}" data-app="${esc(a.id)}"${a.disabled ? ' disabled' : ''}>
+        <span class="cs-app-icon" style="background:${esc(a.colour || '#2b3036')}">${icon(a.icon)}</span>
+        <span class="cs-app-name">${esc(a.label)}</span>
+        <span class="cs-app-sub">${esc(a.sub || '')}</span>
+      </button>`).join('');
+    // only touch the page when something changed, so taps never land on a button mid-swap
+    if (html !== renderHome.last) { ui.apps.innerHTML = html; renderHome.last = html; }
+  }
+
+  async function loadBoard() {
+    ui.board.innerHTML = '';
+    if (!window.Account || !Account.configured) { ui.boardNote.textContent = 'The leaderboard isn\u2019t switched on for this site yet.'; return; }
+    ui.boardNote.textContent = 'Loading\u2026';
+    try {
+      const rows = await Account.leaderboard(25);
+      const me = (Account.username || '').toLowerCase();
+      ui.board.innerHTML = rows.map((r, i) => `<li class="${r.username.toLowerCase() === me ? 'mine' : ''}"><span class="cs-rank">${i + 1}</span><span class="cs-who">${esc(r.username)}</span><span class="cs-km">${(Number(r.best_km) * 0.621371).toFixed(1)} mi</span></li>`).join('');
+      ui.boardNote.textContent = !rows.length ? 'No one\u2019s on the board yet. Sign in from Settings and go for a long drive.'
+        : Account.signedIn ? `You\u2019re signed in as ${Account.username}. Your best journey is added as you drive.`
+        : 'Sign in from Settings to get your best journey on the board.';
+    } catch (e) {
+      ui.boardNote.textContent = e.message;
+    }
   }
 
   function renderConnect() {
@@ -239,6 +294,15 @@ window.CarScreen = (() => {
     const t = e.target.closest('button');
     if (!t || !el.contains(t)) return;
     if (t.dataset.view) { setView(t.dataset.view); return; }
+    if (t.dataset.app) {
+      const app = (hooks.apps ? hooks.apps() : []).find((a) => a.id === t.dataset.app);
+      if (app && !app.disabled) {
+        if (app.closes) close();
+        app.run();
+        if (!app.closes && view === 'home') setTimeout(renderHome, 60);
+      }
+      return;
+    }
     if (t.id === 'csClose') { close(); return; }
     if (t.id === 'csConnect') {
       hooks.beforeLeave();
@@ -284,7 +348,7 @@ window.CarScreen = (() => {
     el.setAttribute('aria-hidden', 'false');
     document.body.classList.add('screen-open');
     if (S.connected) { S.startSdk(); S.refresh(); }
-    setView(v || (S.connected ? 'now' : 'connect'));
+    setView(v || 'home');
     tick();
     clearInterval(pollTimer);
     pollTimer = setInterval(() => { if (S.connected) S.refresh(); }, 4000);
@@ -304,7 +368,7 @@ window.CarScreen = (() => {
   }
 
   S.onChange(() => {
-    if (!S.connected) { loaded = {}; if (isOpen()) setView('connect'); }
+    if (!S.connected) { loaded = {}; if (isOpen() && MUSIC_VIEWS.includes(view)) setView('connect'); }
     renderNow();
   });
 
@@ -313,6 +377,7 @@ window.CarScreen = (() => {
     open,
     close,
     toggle() { if (isOpen()) close(); else open(); },
+    refresh() { if (isOpen() && view === 'home') renderHome(); },
     get isOpen() { return isOpen(); }
   };
 })();

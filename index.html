@@ -17,7 +17,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,500;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/style.css?v=11">
 </head>
 <body class="game">
   <canvas id="scene" aria-label="A car driving along a foggy road"></canvas>
@@ -30,8 +30,6 @@
       <div id="passenger" class="meta passenger"></div>
     </div>
     <div class="odo">
-      <span class="meta">Odometer</span>
-      <span id="km" class="num">0.0 km</span>
       <button type="button" id="screenBtn" class="hud-link">Music</button>
       <button type="button" id="settingsBtn" class="hud-link">Settings</button>
     </div>
@@ -39,9 +37,19 @@
 
   <footer class="hud hud-bottom">
     <div class="gauges">
-      <div class="gauge">
-        <span class="meta" id="speedLabel">Speed</span>
-        <span id="speed" class="num">0 km/h</span>
+      <div class="speedo" id="speedo" aria-label="Speedometer">
+        <svg viewBox="0 0 120 120" aria-hidden="true">
+          <circle cx="60" cy="60" r="57" class="sp-face"/>
+          <g id="spTicks"></g>
+          <text x="60" y="44" class="sp-unit">MPH</text>
+          <text x="60" y="103" class="sp-cruise" id="spCruise">CRUISE</text>
+          <g id="spNeedle"><line x1="60" y1="66" x2="60" y2="14" class="sp-needle"/></g>
+          <circle cx="60" cy="60" r="4.5" class="sp-hub"/>
+        </svg>
+        <div class="odo-window" id="odo" aria-label="Odometer, miles"></div>
+        <span id="speed" class="sr-only">0 mph</span>
+        <span id="speedLabel" class="sr-only"></span>
+        <span id="km" class="sr-only"></span>
       </div>
       <div class="gauge">
         <span class="meta">Fuel</span>
@@ -67,26 +75,26 @@
   </footer>
 
   <section id="intro">
-    <p class="kicker">A slow drive</p>
+    <p class="kicker">A slow drive · Version 11</p>
     <h1>Lost Roads</h1>
-    <p class="lede">Somewhere between the hills and the sea, the road keeps going. Pick up hitchhikers for a bit of money, spend it at the garage, deal with whatever's blocking the road, and keep an eye on the fuel: the stations are far apart, and some have shut for good. Run dry with nothing in the boot and the journey's over.</p>
+    <p class="lede">Somewhere between the hills and the sea, the road keeps going. Pick up hitchhikers for a bit of money, spend it at the garage, deal with whatever's blocking the road, and keep an eye on the fuel: the stations are far apart. Run dry with nothing in the boot and the journey's over.</p>
     <dl class="keys touch-keys">
       <dt>Drive</dt><dd>Hold to go</dd>
       <dt>Brake</dt><dd>Hold to slow down</dd>
-      <dt>Cruise</dt><dd>Keep your speed without holding</dd>
+      <dt>Car screen</dt><dd>Music, photos, cruise, horn, settings and more</dd>
       <dt>Stop</dt><dd>Next to a hitchhiker to give them a lift</dd>
-      <dt>Photo</dt><dd>Take a postcard</dd>
     </dl>
     <dl class="keys desk-keys">
       <dt>&uarr; / W</dt><dd>Accelerate</dd>
       <dt>&darr; / S</dt><dd>Brake</dd>
       <dt>C</dt><dd>Cruise control</dd>
-      <dt>E</dt><dd>Garage, clear the road, fix things</dd>
-      <dt>J</dt><dd>Pour in a jerry can</dd>
+      <dt>E</dt><dd>Fill up, clear the road, fix things</dd>
+      <dt>G</dt><dd>Garage (at fuel stations)</dd>
+      <dt>J</dt><dd>Pour in a jerry can (when stopped)</dd>
       <dt>H</dt><dd>Horn</dd>
       <dt>P</dt><dd>Take a postcard</dd>
       <dt>R</dt><dd>Radio</dd>
-      <dt>N</dt><dd>Car screen (music)</dd>
+      <dt>N</dt><dd>Car screen: music, photo, cruise, garage, settings…</dd>
       <dt>M</dt><dd>Sound</dd>
       <dt>Esc</dt><dd>Settings</dd>
       <dt>F</dt><dd>Full screen</dd>
@@ -102,9 +110,7 @@
     <button type="button" data-act="brake">Brake</button>
     <div class="mid">
       <button type="button" data-act="action" class="small wide" hidden>Use can</button>
-      <button type="button" data-act="horn" class="small">Horn</button>
-      <button type="button" data-act="cruise" class="small">Cruise</button>
-      <button type="button" data-act="photo" class="small">Photo</button>
+      <button type="button" data-act="action2" class="small wide" hidden>Garage</button>
     </div>
     <button type="button" data-act="go">Drive</button>
   </div>
@@ -114,6 +120,11 @@
     <div class="dock-head"><span class="meta">Radio · Spotify</span><button type="button" id="dockHide" class="dock-btn">Hide</button></div>
     <div id="spotifyEmbed"></div>
   </div>
+
+  <button type="button" id="carplayBtn" class="carplay-side" aria-label="Open the car screen">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="6.5" height="6.5" rx="1.6"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="1.6"/><rect x="4" y="13.5" width="6.5" height="6.5" rx="1.6"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.6"/></svg>
+    <span>Car screen</span>
+  </button>
 
   <div id="carScreen" aria-hidden="true"></div>
 
@@ -194,6 +205,18 @@
         <label class="slider" id="radioVolRow"><span class="meta">Car radio volume</span><input type="range" id="radioVol" min="0" max="1" step="0.05"></label>
       </section>
 
+      <section id="rainSection">
+        <h3>Rain</h3>
+        <div class="choices" id="rainChoices">
+          <label><input type="radio" name="rain" value="patter"><span class="name">Gentle patter</span><span class="desc">Soft, steady and close by, like rain on a tent.</span></label>
+          <label><input type="radio" name="rain" value="downpour"><span class="name">Heavy downpour</span><span class="desc">Deep and roaring, with fat drops hitting the glass.</span></label>
+          <label><input type="radio" name="rain" value="roof"><span class="name">Rain on the roof</span><span class="desc">Hollow drumming on the car roof, close and cosy.</span></label>
+          <label><input type="radio" name="rain" value="off"><span class="name">No rain sound</span><span class="desc">You'll still see it.</span></label>
+        </div>
+        <label class="slider"><span class="meta">Rain volume</span><input type="range" id="rainVol" min="0" max="1" step="0.05"></label>
+        <p class="note small">Choosing a style plays a short preview, even when it isn't raining.</p>
+      </section>
+
       <section id="displaySection">
         <h3>Display</h3>
         <label class="check"><input type="checkbox" id="fullscreenToggle"><span class="name">Full screen</span><span class="desc">Hide the browser around the game.</span></label>
@@ -240,15 +263,15 @@
 
   <div id="toast" role="status" aria-live="polite"></div>
 
-  <script src="js/shared.js"></script>
-  <script src="js/audio.js"></script>
-  <script src="js/spotify.js"></script>
-  <script src="js/supabase-config.js"></script>
-  <script src="js/account.js"></script>
-  <script src="js/spotify-config.js"></script>
-  <script src="js/spotify-account.js"></script>
-  <script src="js/carscreen.js"></script>
-  <script src="js/minigames.js"></script>
-  <script src="js/game.js"></script>
+  <script src="js/shared.js?v=11"></script>
+  <script src="js/audio.js?v=11"></script>
+  <script src="js/spotify.js?v=11"></script>
+  <script src="js/supabase-config.js?v=11"></script>
+  <script src="js/account.js?v=11"></script>
+  <script src="js/spotify-config.js?v=11"></script>
+  <script src="js/spotify-account.js?v=11"></script>
+  <script src="js/carscreen.js?v=11"></script>
+  <script src="js/minigames.js?v=11"></script>
+  <script src="js/game.js?v=11"></script>
 </body>
 </html>

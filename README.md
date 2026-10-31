@@ -115,13 +115,13 @@ Progress always saves on the device first. When a player signs in (Settings → 
 
 Signing in on another phone or computer picks up where they left off. Their furthest single journey goes on the **leaderboard**. Anyone can view the leaderboard, signed in or not: in the game (Car screen → Leaderboard), on the game-over screen, or as its own page at `yoursite/leaderboard.html`. Only signed-in players appear on it.
 
-Accounts are just a username and password, with no email. Behind the scenes each username becomes a stand-in address that's never emailed. A forgotten password can't be reset, and the game tells players this.
+Accounts are just a username and password, with no email address anywhere. The game keeps its own usernames and passwords in your Supabase database, and passwords are stored scrambled (bcrypt), never as plain text. It doesn't use Supabase's Authentication section at all. A forgotten password can't be reset, and the game tells players this.
 
 ### One-time setup (about 5 minutes)
 
 1. Go to **supabase.com** and sign in, then click **New project**. Any name and region will do. Note the database password somewhere, though the game doesn't need it.
-2. When the project is ready, go to **SQL Editor → New query**. Open `supabase-setup.sql` from this folder, paste in the whole file and click **Run**. It creates the tables, the leaderboard and the security rules.
-3. Go to **Authentication → Sign In / Providers → Email** (it may be called **Providers → Email**). Turn **Confirm email** OFF and save. This step is essential: the stand-in addresses can't receive emails, so with it on, nobody could finish signing up.
+2. When the project is ready, go to **SQL Editor → New query**. Open `supabase-setup.sql` from this folder, paste in the whole file and click **Run**. It creates the tables, the leaderboard and the security rules. If you set up an older version of Lost Roads before, run the new file anyway. It adds what's new and leaves the old tables alone.
+3. Nothing to do in **Authentication**. The game doesn't use Supabase's email sign-in, so its settings don't matter.
 4. Go to **Project Settings → API** (or **Data API / API Keys**). Copy the **Project URL** and the **anon public** key. If you see "publishable key" instead, use that.
 5. On GitHub, open `js/supabase-config.js`, click the pencil icon and paste them in:
    ```js
@@ -133,9 +133,9 @@ Accounts are just a username and password, with no email. Behind the scenes each
    Commit, and Cloudflare republishes automatically.
 6. Test it: open the game, press Esc, and create an account under **Account**. Then open `leaderboard.html` on your site.
 
-Both values in `supabase-config.js` are designed to be public. The security rules in `supabase-setup.sql` make sure each player can only read and change their own saves and postcards. Everyone can see the leaderboard, which only shows usernames and distances.
+Both values in `supabase-config.js` are designed to be public. The tables are locked so nobody can read them directly. The website can only use the game's own functions, and those only let each player read and change their own saves and postcards. Everyone can see the leaderboard, which only shows usernames and distances.
 
-**About cheating:** distances are reported by the player's own browser, so a determined person could fake a score. For a game among friends that's normally fine. If someone does it, delete their row in Supabase under **Table Editor → profiles**.
+**About cheating:** distances are reported by the player's own browser, so a determined person could fake a score. For a game among friends that's normally fine. If someone does it, delete their row in Supabase under **Table Editor → lr_players**.
 
 ## Music
 
@@ -202,7 +202,7 @@ Money, cans and seats are set near the top of the journey section in `js/game.js
 
 ## Checking an update went live
 
-The start screen shows the version number (for example "Version 11"). If you still see an older number after uploading:
+The start screen shows the version number (for example "Version 12"). If you still see an older number after uploading:
 
 1. Make sure the files went into the **top level** of the GitHub repo, replacing the old ones. `index.html` should sit next to the `js` and `css` folders, not inside a `lost-roads` folder.
 2. In Cloudflare, open the project's Deployments and check that the newest commit has built successfully.

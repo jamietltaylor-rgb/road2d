@@ -6,13 +6,12 @@ window.Account = (() => {
   const URL_BASE = (CFG.url || '').replace(/\/+$/, '');
   const KEY = (window.LR_PREFIX || 'lostroads') + '.account';
   const configured = !!(URL_BASE && CFG.anonKey);
-  // Supabase signs people in with an email address, so each username becomes a
-  // stand-in address that's never emailed. Players only ever see their username.
-  const EMAIL_DOMAIN = 'players.lost-roads.game';
+  // No email addresses: the game keeps its own usernames and passwords in your
+  // Supabase database (see supabase-setup.sql). Signing in gives this device a token.
   const USERNAME = /^[A-Za-z0-9_-]{3,20}$/;
 
-  let acct = LR.load(KEY, null);          // { access, refresh, expires, id, username }
-  let refreshing = null;
+  let acct = LR.load(KEY, null);          // { token, username }
+  if (acct && !acct.token) acct = null;   // an old-style sign-in from before; sign in again
   let lastPushed = '';
   let lastSaved = 0;
   let status = '';
@@ -24,79 +23,48 @@ window.Account = (() => {
     return new Error('Accounts aren’t switched on for this site yet. (Site owner: add your Supabase details to js/supabase-config.js.)');
   }
 
+  const MESSAGES = {
+    bad_username: 'Usernames are 3 to 20 letters, numbers, - or _.',
+    short_password: 'Passwords need at least 8 characters.',
+    username_taken: 'That username is taken. Try another one.',
+    wrong_login: 'That username and password don’t match.',
+    too_many_tries: 'Too many wrong passwords. Wait 10 minutes and try again.',
+    too_many_cards: 'Your postcard album online is full (200 postcards).',
+    signed_out: 'You’ve been signed out. Sign in again.'
+  };
+
   function friendly(body, statusCode) {
-    const msg = String((body && (body.msg || body.message || body.error_description || body.error)) || '');
-    if (/invalid login credentials/i.test(msg)) return 'That username and password don’t match.';
-    if (/already registered|already exists/i.test(msg)) return 'That username is taken. Try another one.';
-    if (/database error saving new user/i.test(msg)) return 'That username is taken. Try another one.';
-    if (/password/i.test(msg) && /(6|8|characters|weak|short)/i.test(msg)) return 'Pick a longer password (at least 8 characters).';
-    if (/email.*confirm|not confirmed/i.test(msg)) return 'Your site’s Supabase project still has “Confirm email” switched on. Turn it off (see README).';
-    if (/signups? not allowed|disabled/i.test(msg)) return 'New accounts are switched off in the Supabase project settings.';
+    const msg = String((body && (body.message || body.msg || body.error)) || '');
+    for (const k in MESSAGES) if (msg.includes(k)) return MESSAGES[k];
+    if (statusCode === 404 || /could not find the function|schema cache|does not exist/i.test(msg)) {
+      return 'The Supabase database isn’t set up yet. (Site owner: run the new supabase-setup.sql, see README.)';
+    }
     if (statusCode === 429 || /rate limit/i.test(msg)) return 'Too many tries. Wait a minute and try again.';
     return msg || 'Something went wrong. Please try again.';
   }
 
-  async function authRequest(path, body, token) {
+  // Calls one of the lr_ functions in supabase-setup.sql
+  async function rpc(name, args, keepalive) {
     if (!configured) throw notReady();
     let res;
     try {
-      res = await fetch(`${URL_BASE}/auth/v1/${path}`, {
+      res = await fetch(`${URL_BASE}/rest/v1/rpc/${name}`, {
         method: 'POST',
-        headers: Object.assign({ apikey: CFG.anonKey, 'content-type': 'application/json' }, token ? { authorization: 'Bearer ' + token } : {}),
-        body: JSON.stringify(body || {})
+        keepalive: !!keepalive,
+        headers: { apikey: CFG.anonKey, 'content-type': 'application/json' },
+        body: JSON.stringify(args || {})
       });
-    } catch (e) {
-      throw new Error('Couldn’t reach the save server. Check your connection.');
-    }
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(friendly(data, res.status));
-    return data;
-  }
-
-  function sessionFrom(data, username) {
-    const s = data.session || data;
-    if (!s || !s.access_token) throw new Error('Your Supabase project still has “Confirm email” switched on. Turn it off (see README).');
-    const user = s.user || data.user || {};
-    return {
-      access: s.access_token,
-      refresh: s.refresh_token,
-      expires: Date.now() + (s.expires_in || 3600) * 1000,
-      id: user.id,
-      username: (user.user_metadata && user.user_metadata.username) || username
-    };
-  }
-
-  async function token() {
-    if (!acct) return null;
-    if (Date.now() < acct.expires - 60000) return acct.access;
-    if (!refreshing) {
-      refreshing = authRequest('token?grant_type=refresh_token', { refresh_token: acct.refresh })
-        .then((data) => { store(Object.assign({}, acct, sessionFrom(data, acct.username))); return acct.access; })
-        .catch(() => { store(null); emit(); return null; })
-        .finally(() => { refreshing = null; });
-    }
-    return refreshing;
-  }
-
-  async function rest(path, opts = {}) {
-    if (!configured) throw notReady();
-    const t = await token();
-    const headers = Object.assign({ apikey: CFG.anonKey, 'content-type': 'application/json' }, opts.headers || {});
-    if (t) headers.authorization = 'Bearer ' + t;
-    let res;
-    try {
-      res = await fetch(`${URL_BASE}/rest/v1/${path}`, Object.assign({}, opts, { headers }));
     } catch (e) {
       throw new Error('Couldn’t reach the save server. Check your connection.');
     }
     if (res.status === 204) return null;
     const data = await res.json().catch(() => null);
     if (!res.ok) {
-      if (res.status === 404 || (data && /relation|does not exist|schema cache/i.test(data.message || ''))) {
-        throw new Error('The Supabase tables aren’t set up yet. (Site owner: run supabase-setup.sql, see README.)');
-      }
-      throw new Error(friendly(data, res.status));
+      const err = new Error(friendly(data, res.status));
+      if (data && String(data.message || '').includes('signed_out')) { store(null); emit(); }
+      throw err;
     }
+    if (data && data.error) throw new Error(MESSAGES[data.error] || data.error);
     return data;
   }
 
@@ -118,8 +86,7 @@ window.Account = (() => {
   }
 
   async function fetchCards() {
-    const rows = await rest(`cards?select=data&user_id=eq.${acct.id}&order=created_at.desc`);
-    return (rows || []).map((r) => r.data);
+    return (await rpc('lr_get_cards', { p_token: acct.token })) || [];
   }
 
   async function syncCards() {
@@ -135,8 +102,7 @@ window.Account = (() => {
 
   // Returns true if the account's progress replaced this device's progress
   async function syncAfterSignIn() {
-    const rows = await rest(`saves?select=data&user_id=eq.${acct.id}`);
-    const remote = rows && rows[0] ? rows[0].data : null;
+    const remote = await rpc('lr_get_save', { p_token: acct.token });
     const local = collectLocal();
     const remoteMetres = remote && remote.stats ? remote.stats.metres || 0 : -1;
     const localMetres = local.stats ? local.stats.metres || 0 : 0;
@@ -157,11 +123,8 @@ window.Account = (() => {
     username = String(username || '').trim();
     if (!USERNAME.test(username)) throw new Error('Usernames are 3 to 20 letters, numbers, - or _.');
     if (create && password.length < 8) throw new Error('Passwords need at least 8 characters.');
-    const email = `${username.toLowerCase()}@${EMAIL_DOMAIN}`;
-    const data = create
-      ? await authRequest('signup', { email, password, data: { username } })
-      : await authRequest('token?grant_type=password', { email, password });
-    store(sessionFrom(data, username));
+    const data = await rpc(create ? 'lr_sign_up' : 'lr_sign_in', { p_username: username, p_password: password });
+    store({ token: data.token, username: data.username || username });
     emit();
     const replaced = await syncAfterSignIn();
     emit();
@@ -171,7 +134,7 @@ window.Account = (() => {
   async function signOut() {
     if (acct) {
       await pushSave(true).catch(() => {});
-      authRequest('logout', {}, acct.access).catch(() => {});
+      rpc('lr_sign_out', { p_token: acct.token }).catch(() => {});
     }
     store(null);
     lastPushed = '';
@@ -184,11 +147,7 @@ window.Account = (() => {
     const body = JSON.stringify(data);
     if (!force && body === lastPushed) return false;
     try {
-      await rest('saves', {
-        method: 'POST',
-        headers: { prefer: 'resolution=merge-duplicates,return=minimal' },
-        body: JSON.stringify({ user_id: acct.id, data, updated_at: new Date().toISOString() })
-      });
+      await rpc('lr_put_save', { p_token: acct.token, p_data: data });
       lastPushed = body;
       lastSaved = Date.now();
       status = '';
@@ -201,40 +160,24 @@ window.Account = (() => {
 
   // For when the page is closing: the browser finishes the request in the background
   function pushSaveOnExit() {
-    if (!acct || Date.now() > acct.expires - 30000) return;
+    if (!acct) return;
     const data = collectLocal();
     const body = JSON.stringify(data);
     if (body === lastPushed) return;
-    try {
-      fetch(`${URL_BASE}/rest/v1/saves`, {
-        method: 'POST',
-        keepalive: true,
-        headers: {
-          apikey: CFG.anonKey,
-          authorization: 'Bearer ' + acct.access,
-          'content-type': 'application/json',
-          prefer: 'resolution=merge-duplicates,return=minimal'
-        },
-        body: JSON.stringify({ user_id: acct.id, data, updated_at: new Date().toISOString() })
-      });
-      lastPushed = body;
-    } catch (e) { /* nothing more we can do */ }
+    rpc('lr_put_save', { p_token: acct.token, p_data: data }, true).catch(() => {});
+    lastPushed = body;
   }
 
   async function pushCard(card) {
     if (!acct) return;
     try {
-      await rest('cards', {
-        method: 'POST',
-        headers: { prefer: 'resolution=ignore-duplicates,return=minimal' },
-        body: JSON.stringify({ user_id: acct.id, id: String(card.id), data: card })
-      });
+      await rpc('lr_put_card', { p_token: acct.token, p_id: String(card.id), p_data: card });
     } catch (e) { status = e.message; emit(); }
   }
 
   async function deleteCard(id) {
     if (!acct) return;
-    try { await rest(`cards?user_id=eq.${acct.id}&id=eq.${encodeURIComponent(String(id))}`, { method: 'DELETE' }); } catch (e) { status = e.message; emit(); }
+    try { await rpc('lr_delete_card', { p_token: acct.token, p_id: String(id) }); } catch (e) { status = e.message; emit(); }
   }
 
   async function pullCards() {
@@ -249,13 +192,13 @@ window.Account = (() => {
   async function submitBest(km) {
     if (!acct || !(km > lastBest + 0.05)) return;
     try {
-      await rest('rpc/submit_best', { method: 'POST', body: JSON.stringify({ km: Math.round(km * 10) / 10 }) });
+      await rpc('lr_submit_best', { p_token: acct.token, p_km: Math.round(km * 10) / 10 });
       lastBest = km;
     } catch (e) { /* try again next time */ }
   }
 
   async function leaderboard(limit = 50) {
-    return (await rest(`profiles?select=username,best_km&best_km=gt.0&order=best_km.desc,updated_at.asc&limit=${limit}`)) || [];
+    return (await rpc('lr_leaderboard', { p_limit: limit })) || [];
   }
 
   return {

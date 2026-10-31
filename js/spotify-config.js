@@ -2,5 +2,5 @@
 // Paste your Spotify app's Client ID between the quotes (see README: "Linking a Spotify account").
 // The Client ID is not a secret, so it's fine for it to be in this file.
 window.SPOTIFY_CONFIG = {
-  clientId: '2df53e52c6c0406b882b4f8dfafffffb'
+  clientId: ''
 };

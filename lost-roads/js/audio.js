@@ -31,7 +31,13 @@ window.RoadAudio = (() => {
   ];
   const MELODY = [69, 72, 74, 76, 79, 81];
 
+  const noiseCache = {};
   function noiseBuffer(type) {
+    if (noiseCache[type]) return noiseCache[type];
+    noiseCache[type] = makeNoise(type);
+    return noiseCache[type];
+  }
+  function makeNoise(type) {
     const len = ctx.sampleRate * 2;
     const buf = ctx.createBuffer(1, len, ctx.sampleRate);
     const d = buf.getChannelData(0);
@@ -278,6 +284,96 @@ window.RoadAudio = (() => {
     for (let i = 0; i < 6; i++) tone(180 + Math.random() * 120, t + i * 0.13, 0.12, 0.05, 'sine');
   }
 
+  // minigame sounds
+  let sawNodes = null;
+  function saw(on) {
+    if (!ctx) return;
+    if (on && !sawNodes && !muted) {
+      const o = ctx.createOscillator();
+      o.type = 'sawtooth';
+      o.frequency.value = 118;
+      const lfo = ctx.createOscillator();
+      lfo.frequency.value = 31;
+      const lg = ctx.createGain();
+      lg.gain.value = 22;
+      lfo.connect(lg).connect(o.frequency);
+      const f = ctx.createBiquadFilter();
+      f.type = 'bandpass';
+      f.frequency.value = 900;
+      f.Q.value = 0.8;
+      const g = ctx.createGain();
+      g.gain.value = 0;
+      g.gain.setTargetAtTime(0.08, ctx.currentTime, 0.05);
+      o.connect(f).connect(g).connect(master);
+      o.start();
+      lfo.start();
+      sawNodes = { o, lfo, g };
+    } else if (!on && sawNodes) {
+      const n = sawNodes;
+      sawNodes = null;
+      n.g.gain.setTargetAtTime(0, ctx.currentTime, 0.06);
+      n.o.stop(ctx.currentTime + 0.4);
+      n.lfo.stop(ctx.currentTime + 0.4);
+    }
+  }
+  function thud() {
+    if (!ctx || muted) return;
+    const t = ctx.currentTime;
+    burst(t, 0.3, 0.5, 260);
+    tone(60, t, 0.25, 0.1);
+  }
+  function baa() {
+    if (!ctx || muted) return;
+    const t = ctx.currentTime;
+    const o = ctx.createOscillator();
+    o.type = 'sawtooth';
+    const base = 240 + Math.random() * 80;
+    o.frequency.setValueAtTime(base, t);
+    o.frequency.linearRampToValueAtTime(base * 0.92, t + 0.5);
+    const vib = ctx.createOscillator();
+    vib.frequency.value = 22;
+    const vg = ctx.createGain();
+    vg.gain.value = 14;
+    vib.connect(vg).connect(o.frequency);
+    const f = ctx.createBiquadFilter();
+    f.type = 'bandpass';
+    f.frequency.value = 1100;
+    f.Q.value = 3;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(0.12, t + 0.05);
+    g.gain.linearRampToValueAtTime(0, t + 0.55);
+    o.connect(f).connect(g).connect(master);
+    o.start(t); vib.start(t);
+    o.stop(t + 0.6); vib.stop(t + 0.6);
+  }
+  function rev(ok) {
+    if (!ctx || muted) return;
+    const t = ctx.currentTime;
+    const o = ctx.createOscillator();
+    o.type = 'sawtooth';
+    o.frequency.setValueAtTime(50, t);
+    o.frequency.linearRampToValueAtTime(ok ? 150 : 95, t + 0.35);
+    o.frequency.linearRampToValueAtTime(55, t + 0.8);
+    const f = ctx.createBiquadFilter();
+    f.type = 'lowpass';
+    f.frequency.value = 700;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(0.14, t + 0.1);
+    g.gain.linearRampToValueAtTime(0, t + 0.85);
+    o.connect(f).connect(g).connect(master);
+    o.start(t);
+    o.stop(t + 0.9);
+    burst(t + 0.05, 0.5, ok ? 0.35 : 0.2, 500);
+  }
+  let lastRatchet = 0;
+  function ratchet() {
+    if (!ctx || muted || ctx.currentTime - lastRatchet < 0.09) return;
+    lastRatchet = ctx.currentTime;
+    burst(ctx.currentTime, 0.04, 0.25, 4000, 'white');
+  }
+
   function setMuted(m) {
     muted = m;
     if (ctx) master.gain.setTargetAtTime(m ? 0 : 0.9, ctx.currentTime, 0.1);
@@ -323,6 +419,11 @@ window.RoadAudio = (() => {
     thunder,
     bump,
     glug,
+    saw,
+    thud,
+    baa,
+    rev,
+    ratchet,
     get muted() { return muted; },
     get radioOn() { return radioOn; }
   };

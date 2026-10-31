@@ -1,8 +1,8 @@
 # Lost Roads
 
-A slow driving game for the browser. You drive an old estate car through ten foggy landscapes while the day turns to night and the weather changes. Pick up hitchhikers to earn money, spend it on jerry cans, and keep an eye on the fuel. Fuel stations are far apart and some have closed, so if you run dry with nothing in the boot, the journey's over. Photos you take go into a postcard album. Players can sign in so their progress follows them between devices, and the car has a touchscreen for playing your own Spotify.
+A slow driving game for the browser. You drive an old estate car through ten foggy landscapes while the day turns to night and the weather changes. Pick up hitchhikers to earn money, spend it on jerry cans, and keep an eye on the fuel. Fuel stations are far apart, filling up and pouring in a jerry can are both hands-on, and if you run dry with nothing in the boot, the journey's over. Photos you take go into a postcard album. Players can sign in so their progress follows them between devices, and the car has a touchscreen for playing your own Spotify.
 
-The game is plain HTML, CSS and JavaScript. A small Cloudflare Worker (`worker.js`) handles accounts and cloud saves.
+The game is plain HTML, CSS and JavaScript. Accounts, cloud saves and the leaderboard use a free Supabase project. Cloudflare just publishes the files.
 
 ## Files
 
@@ -14,16 +14,20 @@ favicon.svg, icons/    icons
 css/style.css          all the styling
 js/game.js             the game itself
 js/audio.js            engine sounds, road, rain and the car radio
-js/account.js          sign-in and cloud saves (the game side)
+js/account.js          sign-in, cloud saves and the leaderboard (talks to Supabase)
+js/supabase-config.js  where your Supabase URL and key go
+js/leaderboard.js      the leaderboard page
+leaderboard.html       furthest journeys
+supabase-setup.sql     paste into Supabase's SQL Editor once
 js/spotify.js          plays a pasted Spotify link
 js/spotify-account.js  links a Spotify account
 js/spotify-config.js   where your Spotify Client ID goes
 js/carscreen.js        the in-car touchscreen for music
+js/minigames.js        the roadside-job minigames
 js/shared.js           saving on the device
 js/album.js            the album page
-worker.js              accounts and cloud saves (the server side)
 wrangler.jsonc         Cloudflare settings
-.assetsignore          keeps worker.js, the README and settings out of the public site
+.assetsignore          keeps the README, the SQL file and settings out of the public site
 ```
 
 ## Controls
@@ -39,26 +43,32 @@ wrangler.jsonc         Cloudflare settings
 | M | | Sound on/off |
 | Esc or O | Settings (top right) | Settings (the game pauses) |
 | F | | Full screen |
-| E | Buy can | Buy a jerry can (when stopped at a fuel station) |
-| J | Use can | Pour a jerry can into the tank |
+| E | (context button) | Fill up at a pump, clear the road, get unstuck, change a tyre |
+| G | Garage | The garage, at fuel stations |
+| J | Use can | Pour a jerry can into the tank (stop first) |
 | H | Horn | Honk (moves sheep along) |
 
 **Controllers** (Xbox, PlayStation and so on) work on a computer: right trigger drives, left trigger brakes, X/Square takes a photo, Y/Triangle sets cruise control, and Start opens the settings.
 
 ## How the journey works
 
-- **Fuel:** a full tank lasts about 3.6 km. Fuel stations are unevenly spaced (roughly 1.5 to 4 km apart). Now and then one is **closed** ("SHUT" sign, boarded windows). The HUD shows how far it is to the next station.
-- **Hitchhikers** wait by the road holding a cardboard sign with where they're going. Stop next to one to pick them up (one at a time). They chat as you drive, and you get paid when you stop at their village. They pay more for longer rides and sometimes add a tip. Drive past their stop and they'll only pay half.
-- **Jerry cans** cost £20 at any open fuel station (up to 3). They're filled when you buy them, and refilled for free whenever you fill up at a station. If the tank runs dry, a full can is used automatically. You can also pour one in with J or Use can.
-- **Game over:** if you run out of fuel with no full jerry can, the journey ends. The screen shows your distance, best distance, hitchhikers carried and money earned. "Start a new journey" gives you a fresh road with new hitchhikers and events. Your postcards are kept.
-- **Things on the road:**
-  - Sheep wander onto the road. Stop and wait, or honk. Hitting them costs £10.
-  - Fallen trees block the road until a farmer clears them. Hitting one costs £15.
-  - Deer leap across, mostly at night.
-  - You'll sometimes find a £5 or £10 note on the verge.
-  - At **viewpoints**, a gallery buys your postcard for £6.
-  - Thunderstorms bring lightning and thunder.
-- **Landscapes (10):** Pine Valley, Heather Moor, Salt Coast, High Pass, Rust Woods, Birch Wood, Old Orchard, Wind Farm Ridge (with turning turbines), Dune Road and Peat Bog.
+- **Fuel:** fuel is only used while you're pressing the accelerator. Coasting and braking are free, and cruise control uses a little, because it holds the accelerator for you. Fuel stations are unevenly spaced (roughly 1.5 to 4 km apart) and all of them are open. The HUD shows how far it is to the next one.
+- **Filling up is a minigame:** stop at the pump and press **E** (or tap **Fill up**). Hold the trigger (or hold Space) to pump. It speeds up the longer you hold, so let go when the needle reaches the green, before it overflows. Filling up also refills any empty jerry cans.
+- **The garage:** stop at any fuel station and press **G** (or tap **Garage**) to buy:
+  - **Jerry cans** (£20, up to 3). Each holds 60% of a tank, comes full, and refills whenever you fill up at a pump.
+- **Using a jerry can is a minigame too:** stop the car and press **J** (or tap **Use can**). Hold Pour (or hold Space) to tip the can into the funnel. Pour in bursts, because if the funnel overflows you spill fuel. If you run out of fuel while driving, coast to a stop and pour a can in.
+  - **Extra seats** for hitchhikers: a fold-down back seat (£40) and then a bench seat in the boot (£90). You can carry up to 3 passengers.
+- **Hitchhikers** wait by the road holding a cardboard sign with where they're going. Stop next to one to pick them up, if you have a free seat. They chat as you drive, and each pays when you stop at their village. Longer rides pay more, sometimes with a tip. Drive past their stop and they only pay half.
+- **Game over:** if you run out of fuel with no full jerry can, the journey ends. "Start a new journey" gives you a fresh road with new hitchhikers and events. Money, cans and seats reset; your postcards are kept.
+- **Roadside jobs (minigames).** Stop at the problem and press **E** (or tap the button) to deal with it. Each one also has a "pay someone" option if you'd rather not, or **Not now** to leave it for a moment.
+  - **Fallen tree:** hold the chainsaw on each marked line to cut through the trunk, then drag the pieces onto the verge. (Or wait for a farmer, £10.)
+  - **Sheep on the road:** tap each sheep to shoo it off. Some wander back. (Or wait for the farmer, £5.)
+  - **Rockfall:** drag the boulders off the road. Big ones are heavy. (Or a farmer, £10.)
+  - **Stuck in the mud:** tap Rev (or press Space) when the needle's in the green, four times. (Or a tractor, £15.)
+  - **Puncture:** sharp things on the road cause a flat, and the car limps along at walking pace. Stop, jack the car up, hold on each wheel nut to undo it, and then tighten the spare. (Or roadside recovery, £20.)
+  - Hitting sheep, a tree or rocks at speed costs £10 to £15.
+- **Other things on the road:** deer leaping across (mostly at night), £5 and £10 notes on the verge, **viewpoints** where a gallery buys your postcard for £6, and thunderstorms.
+- **Landscapes (10):** Pine Valley, Heather Moor, Salt Coast, High Pass, Rust Woods, Birch Wood, Old Orchard, Wind Farm Ridge, Dune Road and Peat Bog.
 
 ## Phones and computers
 
@@ -67,22 +77,36 @@ The game detects which you're on and adjusts:
 - **Phones and tablets** get on-screen buttons and touch-sized settings. They draw at a lower resolution to save battery, show less rain, and keep the screen on while you drive. Turned sideways, the road moves up out of the way of the buttons. Settings → Display has a **Battery saver** option for older phones. On iPhone, use Share → Add to Home Screen to play full screen like an app. On Android, the full-screen option is in Settings.
 - **Computers** get keyboard and controller support, sharper graphics, a bigger HUD on large screens, a mouse pointer that hides while you drive, and F for full screen.
 
-## Accounts and cloud saves
+## Accounts and the leaderboard (Supabase)
 
-Progress always saves on the device first. If a player signs in (Settings → Account), their journey, distance driven, settings and postcards are also copied to their account. That happens once a minute while driving, when they leave the page, and whenever they take a postcard. Signing in on another phone or computer picks up where they left off.
+Progress always saves on the device first. When a player signs in (Settings → Account), their journey, distance, settings and postcards are also saved to their account:
+- once a minute while driving
+- when they leave the page
+- whenever they take a postcard
 
-- Accounts are just a username and password. There's no email, so a forgotten password can't be reset. The game tells players this.
-- Passwords are stored as salted PBKDF2 hashes, never as plain text. After 10 wrong password attempts, that username is locked for 15 minutes.
-- Everything is stored in a free Cloudflare D1 database called `lost-roads-saves`.
+Signing in on another phone or computer picks up where they left off. Their furthest single journey goes on the **leaderboard** (`leaderboard.html`, linked from the game, the settings and the game-over screen).
 
-**Setup:** nothing extra is needed. The first time Cloudflare deploys the site with `npx wrangler deploy`, it creates the database automatically, and the tables are created on the first sign-in.
+Accounts are just a username and password, with no email. Behind the scenes each username becomes a stand-in address that's never emailed. A forgotten password can't be reset, and the game tells players this.
 
-If the deploy log shows an error about the database:
-1. In the Cloudflare dashboard, go to **Storage & databases → D1** and create a database called `lost-roads-saves`.
-2. Copy its database ID into `wrangler.jsonc`, under `"database_name"`, as `"database_id": "..."`.
-3. Commit the change.
+### One-time setup (about 5 minutes)
 
-Sign-in only works on the deployed site, not when you open `index.html` straight from your computer.
+1. Go to **supabase.com** and sign in, then click **New project**. Any name and region will do. Note the database password somewhere, though the game doesn't need it.
+2. When the project is ready, go to **SQL Editor → New query**. Open `supabase-setup.sql` from this folder, paste in the whole file and click **Run**. It creates the tables, the leaderboard and the security rules.
+3. Go to **Authentication → Sign In / Providers → Email** (it may be called **Providers → Email**). Turn **Confirm email** OFF and save. This step is essential: the stand-in addresses can't receive emails, so with it on, nobody could finish signing up.
+4. Go to **Project Settings → API** (or **Data API / API Keys**). Copy the **Project URL** and the **anon public** key. If you see "publishable key" instead, use that.
+5. On GitHub, open `js/supabase-config.js`, click the pencil icon and paste them in:
+   ```js
+   window.SUPABASE_CONFIG = {
+     url: 'https://abcdefghijklm.supabase.co',
+     anonKey: 'eyJhbGciOi...'
+   };
+   ```
+   Commit, and Cloudflare republishes automatically.
+6. Test it: open the game, press Esc, and create an account under **Account**. Then open `leaderboard.html` on your site.
+
+Both values in `supabase-config.js` are designed to be public. The security rules in `supabase-setup.sql` make sure each player can only read and change their own saves and postcards. Everyone can see the leaderboard, which only shows usernames and distances.
+
+**About cheating:** distances are reported by the player's own browser, so a determined person could fake a score. For a game among friends that's normally fine. If someone does it, delete their row in Supabase under **Table Editor → profiles**.
 
 ## Music
 
@@ -120,12 +144,20 @@ Spotify requires each website to register as an "app" before people can sign in 
 
 ## Publish on Cloudflare
 
-1. In the Cloudflare dashboard, go to **Workers & Pages → Create** and connect the GitHub repo.
+Either kind of Cloudflare project works, because the site is just files.
+
+**Worker** (the newer screen with a "Deploy command" box):
+1. Go to **Workers & Pages → Create → Import a repository** and pick the repo.
 2. Leave the **build command** blank.
 3. Set the **deploy command** to `npx wrangler deploy`.
-4. Deploy. To use your own domain, add it under the project's **Settings → Domains & Routes**.
+4. Click **Deploy**.
 
-Every change you commit to GitHub is published automatically.
+**Pages** (a "Build output directory" box, no deploy command):
+1. Set **Framework preset** to None.
+2. Leave the **build command** and **build output directory** blank.
+3. Save and deploy.
+
+To use your own domain, add it under the project's **Custom domains** (or **Domains & Routes**). Every change you commit to GitHub is published automatically.
 
 ## Tweaking
 
@@ -137,6 +169,6 @@ Near the top of `js/game.js`:
 - `BIOMES`: colours and tree types for each landscape
 - `CAR`: the car's colours (`body` is the paint)
 
-Money and cans are set near the top of the journey section in `js/game.js`: `CAN_PRICE`, `CAN_FUEL` (how much a can puts in) and `MAX_CANS`. Hitchhiker names and what they say are in `NAMES` and `CHAT`, so add your own.
+Money, cans and seats are set near the top of the journey section in `js/game.js`: `CAN_PRICE`, `CAN_FUEL` (how much a can puts in), `MAX_CANS`, `SEAT_PRICES` and `MAX_SEATS`. The minigames live in `js/minigames.js`, and each one's "pay someone" price is in its `pay` line. Hitchhiker names and what they say are in `NAMES` and `CHAT`, so add your own.
 
 For testing, add `?t=0.8` to the address to jump to dusk, or `?km=5` to jump 5 km down the road.

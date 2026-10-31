@@ -206,7 +206,10 @@
     seed: saved && saved.seed ? saved.seed : (Math.random() * 1e6) | 0,
     money: saved && typeof saved.money === 'number' ? saved.money : 5,
     cans: saved && Array.isArray(saved.cans) ? saved.cans : [],
-    passenger: saved && saved.passenger ? saved.passenger : null,
+    passengers: saved && Array.isArray(saved.passengers) ? saved.passengers : saved && saved.passenger ? [saved.passenger] : [],
+    seats: saved && saved.seats ? saved.seats : 1,
+    stuck: saved && saved.stuck != null ? saved.stuck : null,
+    flat: saved ? !!saved.flat : false,
     done: new Set(saved && saved.done ? saved.done : []),
     carried: saved ? saved.carried || 0 : 0,
     earned: saved ? saved.earned || 0 : 0,
@@ -573,7 +576,7 @@
     ctx.textBaseline = 'alphabetic';
   }
 
-  // Fuel stops are unevenly spaced, and now and then one is closed.
+  // Fuel stops are unevenly spaced (and they are all open).
   // The first few are always open and close together so a new journey can get going.
   let stationList = [], stationSeed = null;
   function ensureStations(m) {
@@ -583,7 +586,8 @@
       const prev = stationList[n - 1];
       const r = hash2(n, 500 + state.seed * 7), r2 = hash2(n, 900 + state.seed * 7);
       const gap = n < 4 ? 1500 + r * 900 : 1600 + r * 2300;
-      const closed = n >= 4 && r2 < 0.17 && !prev.closed;
+      const closed = false;   // every station is open
+      void r2;
       stationList.push({ m: prev.m + gap, closed });
     }
   }
@@ -684,7 +688,9 @@
   // ---------------------------------------------------------------------------
   // The journey: hitchhikers, things on the road, money and jerry cans
   // ---------------------------------------------------------------------------
-  const CAN_PRICE = 20, CAN_FUEL = 35, MAX_CANS = 3;
+  const CAN_PRICE = 20, CAN_FUEL = 60, MAX_CANS = 3;
+  const SEAT_PRICES = { 2: 40, 3: 90 };   // price of the 2nd and 3rd passenger seat
+  const MAX_SEATS = 3;
   const NAMES = ['Margaret', 'Tom', 'Priya', 'Ewan', 'Aled', 'Ruth', 'Kwame', 'Isla', 'Dougie', 'Mei', 'Frank', 'Niamh', 'Owen', 'Sadie', 'Bill', 'Ada', 'Jonah', 'Elsie', 'Rafi', 'Bryony'];
   const COATS = ['#7c4b3a', '#3f5a6b', '#8a7a3c', '#4d6146', '#6b4a68', '#2f3b46', '#9a6b3f', '#5a5f66', '#8b3a2f'];
   const CHAT = [
@@ -721,7 +727,8 @@
       const near = Math.abs(stationWorldX(stationIndexNear(m)) / PXM - m) < 140 || Math.abs((Math.round(m / PLACE_EVERY) * PLACE_EVERY) - m) < 60;
       if (!near) {
         const p = r(2);
-        let kind = p < 0.4 ? 'hitch' : p < 0.52 ? 'sheep' : p < 0.62 ? 'tree' : p < 0.74 ? 'cash' : p < 0.86 ? 'view' : 'deer';
+        let kind = p < 0.34 ? 'hitch' : p < 0.44 ? 'sheep' : p < 0.53 ? 'tree' : p < 0.6 ? 'rocks' : p < 0.67 ? 'mud' : p < 0.73 ? 'glass'
+          : p < 0.82 ? 'cash' : p < 0.92 ? 'view' : 'deer';
         if (spots.length === 0) kind = 'hitch';
         spots.push({ id: k, m, kind, r: r(3), r2: r(4), r3: r(5) });
       }
@@ -753,12 +760,11 @@
     toast(msg);
   }
 
-  function dropOff(missed) {
-    const p = state.passenger;
+  function dropOff(p, missed) {
     const fare = fareFor(p.from, p.dest);
     const tip = missed ? 0 : Math.floor(Math.random() * 5);
     const pay = missed ? Math.ceil(fare / 2) : fare + tip;
-    state.passenger = null;
+    state.passengers = state.passengers.filter((x) => x !== p);
     state.carried++;
     if (missed) caption(`${p.name}: Ah, that was my stop back there. Never mind, I’ll walk. Here’s something for the petrol.`);
     else caption(`${p.name}: ${THANKS[Math.floor(Math.random() * THANKS.length)]} Here’s £${pay}${tip ? ', and a bit extra' : ''}.`);
@@ -779,22 +785,158 @@
     RoadAudio.chime();
     toast(`Bought a jerry can and filled it (−£${CAN_PRICE})`);
   }
-  function useCan(auto) {
+  // ---- the garage at open fuel stations ----
+  function garageOpen() { return ui.garage.classList.contains('open'); }
+  function openGarage() {
+    if (!atOpenStation(state.cam + carX) || state.v > 1.5) { toast('The garage is at the fuel station. Stop there to go in.'); return; }
+    state.v = 0;
+    input.go = input.brake = false;
+    renderGarage();
+    ui.garage.classList.add('open');
+    ui.garage.setAttribute('aria-hidden', 'false');
+  }
+  function closeGarage() {
+    ui.garage.classList.remove('open');
+    ui.garage.setAttribute('aria-hidden', 'true');
+    if (document.activeElement) document.activeElement.blur();
+  }
+  function renderGarage() {
+    ui.garageMoney.textContent = `\u00a3${state.money}`;
+    const items = [];
+    const cansFull = state.cans.filter(Boolean).length;
+    items.push({
+      name: 'Jerry can',
+      desc: `Holds ${CAN_FUEL}% of a tank. Comes full, and refills whenever you fill up at a pump. Stop the car to pour it in. You have ${state.cans.length} of ${MAX_CANS}${state.cans.length ? ` (${cansFull} full)` : ''}.`,
+      price: CAN_PRICE,
+      can: state.cans.length < MAX_CANS,
+      why: 'The boot is full',
+      buy: buyCan
+    });
+    const nextSeat = state.seats + 1;
+    items.push({
+      name: nextSeat === 2 ? 'Fold-down back seat' : 'Bench seat in the boot',
+      desc: state.seats >= MAX_SEATS
+        ? `All ${MAX_SEATS} passenger seats fitted.`
+        : `Carry ${nextSeat} hitchhikers at once instead of ${state.seats}. More passengers, more fares.`,
+      price: SEAT_PRICES[nextSeat] || 0,
+      can: state.seats < MAX_SEATS,
+      why: 'Fully fitted',
+      buy: buySeat
+    });
+    ui.garageList.innerHTML = '';
+    for (const it of items) {
+      const row = document.createElement('div');
+      row.className = 'g-item';
+      const text = document.createElement('div');
+      const n = document.createElement('p'); n.className = 'g-name'; n.textContent = it.name;
+      const d = document.createElement('p'); d.className = 'g-desc'; d.textContent = it.desc;
+      text.append(n, d);
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'g-buy';
+      if (!it.can) { b.textContent = it.why; b.disabled = true; }
+      else if (state.money < it.price) { b.textContent = `\u00a3${it.price}`; b.disabled = true; b.title = 'Not enough money yet'; }
+      else b.textContent = `Buy \u00a3${it.price}`;
+      b.addEventListener('click', () => { it.buy(); renderGarage(); });
+      row.append(text, b);
+      ui.garageList.appendChild(row);
+    }
+  }
+  function buySeat() {
+    const next = state.seats + 1;
+    const price = SEAT_PRICES[next];
+    if (!price || state.money < price) return;
+    state.money -= price;
+    state.seats = next;
+    RoadAudio.chime();
+    toast(`Fitted a new seat. You can now carry ${state.seats} hitchhikers.`);
+    persist(true);
+  }
+
+  function useCan() {
     const i = state.cans.indexOf(true);
-    if (i < 0) { if (!auto) toast(state.cans.length ? 'Your jerry cans are empty. Fill them at a fuel station.' : 'You don’t have a jerry can. Buy one at a fuel station.'); return false; }
-    if (state.fuel > 97 && !auto) { toast('Your tank is already full.'); return false; }
-    state.cans[i] = false;
-    state.fuel = Math.min(100, state.fuel + CAN_FUEL);
-    RoadAudio.glug();
-    toast(auto ? 'The engine coughed, so you emptied a jerry can into the tank.' : 'You poured a jerry can into the tank.');
+    if (i < 0) { toast(state.cans.length ? 'Your jerry cans are empty. Fill them at a fuel station.' : 'You don’t have a jerry can. Buy one at the garage.'); return false; }
+    if (state.v > 0.5) { toast('Stop the car first, then you can pour in the jerry can.'); return false; }
+    if (state.fuel > 97) { toast('Your tank is already full.'); return false; }
+    state.cruise = false;
+    input.go = input.brake = false;
+    Minigames.open('can', {
+      data: { amount: CAN_FUEL, fuel: state.fuel },
+      onWin: (r) => {
+        state.cans[i] = false;
+        state.fuel = Math.min(100, state.fuel + r.added);
+        toast(r.spilled > 3 ? `Can emptied, though you spilt about ${Math.round(r.spilled)}% on the road.` : 'You poured the whole can in without spilling a drop.');
+        persist(true);
+      }
+    });
     return true;
   }
+
+  function fillUp() {
+    const carW = state.cam + carX;
+    if (!atOpenStation(carW)) return;
+    if (state.v > 0.5) { toast('Stop at the pump first.'); return; }
+    if (state.fuel >= 96) { toast('Your tank is already full.'); return; }
+    input.go = input.brake = false;
+    state.cruise = false;
+    Minigames.open('pump', {
+      data: { fuel: state.fuel },
+      onWin: (r) => {
+        state.fuel = r.fuel;
+        const empties = state.cans.filter((c) => !c).length;
+        state.cans = state.cans.map(() => true);
+        let msg = r.spilled ? 'Full, but you splashed petrol down the side of the car.' : 'Filled up to the brim.';
+        if (empties) msg += ` You filled your jerry can${empties > 1 ? 's' : ''} too.`;
+        toast(msg);
+        persist(true);
+      },
+      onCancel: (r) => { if (r && r.fuel > state.fuel) { state.fuel = r.fuel; toast(`You stopped pumping at ${Math.round(r.fuel)}%.`); } }
+    });
+  }
+
   function honk() {
     RoadAudio.horn();
     const carW = state.cam + carX;
-    for (const sp of spots) {
-      if (sp.kind === 'sheep' && sp.m * PXM > carW && sp.m * PXM - carW < 600) (ev[sp.id] || (ev[sp.id] = { wait: 0, t: -1 })).honked = true;
+    if (spots.some((sp) => sp.kind === 'sheep' && !state.done.has(sp.id) && sp.m * PXM > carW && sp.m * PXM - carW < 600)) {
+      setTimeout(() => RoadAudio.baa(), 350);
+      toast('The sheep just stare at you. You\u2019ll have to shoo them yourself.');
     }
+  }
+
+  // ---- roadside jobs (minigames) ----
+  const BLOCKERS = { sheep: 80, tree: 40, rocks: 50 };
+  function blockerAhead(carW) {
+    for (const sp of spots) {
+      if (!(sp.kind in BLOCKERS) || state.done.has(sp.id)) continue;
+      const start = sp.m * PXM - BLOCKERS[sp.kind];
+      const gap = start - (carW + 62);
+      if (gap > -20 && gap < 360) return sp;
+    }
+    return null;
+  }
+  function startJob(kind, onDone, doneMsg, payMsg) {
+    state.v = 0;
+    state.cruise = false;
+    input.go = input.brake = false;
+    Minigames.open(kind, {
+      money: state.money,
+      onWin: () => { onDone(); toast(doneMsg); persist(true); },
+      onPay: (cost) => { state.money = Math.max(0, state.money - cost); onDone(); toast(payMsg(cost)); persist(true); }
+    });
+  }
+  function clearBlocker(sp) {
+    const msgs = {
+      tree: ['You cut the tree up and dragged it clear.', (c) => `A farmer turns up with a tractor and clears it (\u2212\u00a3${c}).`],
+      rocks: ['You rolled the rocks off the road.', (c) => `A farmer clears the rocks with his loader (\u2212\u00a3${c}).`],
+      sheep: ['The road\u2019s clear. The sheep look unimpressed.', (c) => `The farmer whistles and the sheep trot off (\u2212\u00a3${c}).`]
+    }[sp.kind];
+    startJob(sp.kind, () => { state.done.add(sp.id); (ev[sp.id] || (ev[sp.id] = {})).t = state.time; }, msgs[0], msgs[1]);
+  }
+  function getUnstuck() {
+    startJob('mud', () => { state.stuck = null; state.v = 2.5; }, 'You rocked the car free of the mud.', (c) => `A tractor tows you out of the mud (\u2212\u00a3${c}).`);
+  }
+  function changeTyre() {
+    startJob('tyre', () => { state.flat = false; }, 'Spare wheel on. Off you go.', (c) => `Roadside recovery fits a new tyre (\u2212\u00a3${c}).`);
   }
 
   function updateJourney(dt, carW) {
@@ -808,31 +950,43 @@
       const e = ev[sp.id] || (ev[sp.id] = { wait: 0, t: -1 });
       if (state.done.has(sp.id)) continue;
       if (sp.kind === 'hitch') {
-        if (!state.passenger && Math.abs(x - carW) < 80 && state.v < 1.5) {
+        if (state.passengers.length < state.seats && Math.abs(x - carW) < 80 && state.v < 1.5) {
           const h = hitchInfo(sp);
-          state.passenger = { name: h.name, dest: h.dest, from: sp.m, coat: h.coat };
+          state.passengers.push({ name: h.name, dest: h.dest, from: sp.m, coat: h.coat });
           state.done.add(sp.id);
           state.chatT = 30 + Math.random() * 20;
           caption(`${h.name}: Thanks for stopping. Could you take me as far as ${placeName(h.dest)}? I’ll pay you £${fareFor(sp.m, h.dest)}.`);
         }
-      } else if (sp.kind === 'sheep' || sp.kind === 'tree') {
-        const start = x - (sp.kind === 'sheep' ? 80 : 40);
-        if (front > start && front < start + 200) {
+      } else if (sp.kind in BLOCKERS) {
+        const start = x - BLOCKERS[sp.kind];
+        if (front > start && front < start + 220) {
           if (state.v > 3) {
             RoadAudio.bump();
-            if (sp.kind === 'sheep') charge(10, 'You clipped a sheep. The farmer wants £10 for the vet.');
-            else charge(15, 'You hit the fallen tree. Fixing the bumper costs £15.');
+            if (sp.kind === 'sheep') charge(10, 'You clipped a sheep. The farmer wants \u00a310 for the vet.');
+            else if (sp.kind === 'tree') charge(15, 'You hit the fallen tree. Fixing the bumper costs \u00a315.');
+            else charge(15, 'You hit a rock. Fixing the bumper costs \u00a315.');
           }
           state.v = 0;
           state.cruise = false;
           state.cam = start - 62 - carX;
         }
-        const gap = start - (state.cam + carX + 62);
-        if (gap < 340 && gap > -20 && state.v < 0.5) e.wait += dt;
-        if (e.wait > (sp.kind === 'sheep' ? 3 : 4.5) || (sp.kind === 'sheep' && e.honked && gap < 600)) {
-          e.t = state.time;
+      } else if (sp.kind === 'mud') {
+        if (carW > x - 10 && state.stuck == null) {
           state.done.add(sp.id);
-          toast(sp.kind === 'sheep' ? 'The sheep amble off the road.' : 'A farmer drags the tree clear with his tractor.');
+          state.stuck = sp.id;
+          state.v = 0;
+          state.cruise = false;
+          toast('The wheels sink into a patch of deep mud. You\u2019re stuck.');
+        }
+      } else if (sp.kind === 'glass') {
+        if (carW > x) {
+          state.done.add(sp.id);
+          if (state.v > 4 && !state.flat) {
+            state.flat = true;
+            state.cruise = false;
+            RoadAudio.bump();
+            toast('Bang. Something sharp on the road: you\u2019ve got a puncture.');
+          }
         }
       } else if (sp.kind === 'cash') {
         if (carW > x) {
@@ -851,16 +1005,18 @@
       }
     }
 
-    const p = state.passenger;
-    if (p) {
+    if (state.passengers.length) {
       state.chatT -= dt;
       if (state.chatT <= 0 && state.v > 2) {
+        const p = state.passengers[Math.floor(Math.random() * state.passengers.length)];
         caption(`${p.name}: ${CHAT[Math.floor(Math.random() * CHAT.length)]}`);
         state.chatT = 50 + Math.random() * 40;
       }
-      const signX = p.dest * PLACE_EVERY * PXM - 60;
-      if (carW > signX - 240 && carW < signX + 300 * PXM && state.v < 1.5) dropOff(false);
-      else if (carW > signX + 300 * PXM) dropOff(true);
+      for (const p of state.passengers.slice()) {
+        const signX = p.dest * PLACE_EVERY * PXM - 60;
+        if (carW > signX - 240 && carW < signX + 300 * PXM && state.v < 1.5) dropOff(p, false);
+        else if (carW > signX + 300 * PXM) dropOff(p, true);
+      }
     }
   }
 
@@ -998,6 +1154,33 @@
         ctx.fill();
         ctx.restore();
         ctx.globalAlpha = 1;
+      } else if (sp.kind === 'rocks' && (!gone || (e.t >= 0 && since < 1.5))) {
+        const k = gone ? smooth(0, 1.5, since) : 0;
+        ctx.globalAlpha = 1 - k;
+        for (let i = 0; i < 6; i++) {
+          const ox = (hash2(i, sp.id + 7) - 0.5) * 90;
+          const r = 5 + hash2(i, sp.id + 8) * 9;
+          const y = roadY(sp.m * PXM + ox) + 9 - r * 0.6 - k * 30;
+          ctx.fillStyle = rgb(shade(hex(i % 2 ? '#7d7d77' : '#68695f')));
+          ctx.beginPath();
+          ctx.ellipse(x0 + ox, y, r * 1.2, r, 0, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        ctx.globalAlpha = 1;
+      } else if (sp.kind === 'mud') {
+        const base = roadY(sp.m * PXM) + 6;
+        ctx.fillStyle = rgb(shade(hex('#4a3826')));
+        ctx.beginPath();
+        ctx.ellipse(x0, base, 46, 7, 0, 0, Math.PI * 2);
+        ctx.ellipse(x0 + 30, base + 2, 22, 5, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = rgb(shade(mix(hex('#4a3826'), hex('#9aa3a3'), 0.35)), 0.6);
+        ctx.beginPath(); ctx.ellipse(x0 - 8, base - 1, 18, 2.2, 0, 0, Math.PI * 2); ctx.fill();
+      } else if (sp.kind === 'glass' && !gone) {
+        const base = roadY(sp.m * PXM) + 5;
+        const a = 0.35 + 0.35 * Math.sin(state.time * 6 + sp.id);
+        ctx.fillStyle = `rgba(220,232,236,${a})`;
+        for (let i = 0; i < 7; i++) ctx.fillRect(x0 + (hash2(i, sp.id) - 0.5) * 30, base + (hash2(i, sp.id + 1) - 0.5) * 4, 2.5, 1.5);
       } else if (sp.kind === 'deer' && e.t >= 0 && since < 1.5) {
         const k = since / 1.5;
         const x = x0 - 30 + k * 160;
@@ -1092,10 +1275,11 @@
     ctx.stroke();
 
     // a passenger in the back
-    if (c.passenger) {
+    for (let i = 0; i < (c.riders || 0); i++) {
+      const hx = [-25, 6, -33][i];
       ctx.fillStyle = rgb(c.passenger, 0.85);
-      ctx.beginPath(); ctx.arc(-25, -38.5, 4.6, 0, Math.PI * 2); ctx.fill();
-      ctx.fillRect(-31, -34, 12, 4);
+      ctx.beginPath(); ctx.arc(hx, -38.5, 4.6, 0, Math.PI * 2); ctx.fill();
+      ctx.fillRect(hx - 6, -34, 12, 4);
     }
 
     // trim and doors
@@ -1134,7 +1318,9 @@
     // wheels
     for (const wx of [-34, 34]) {
       ctx.fillStyle = rgb(c.tyre);
-      ctx.beginPath(); ctx.arc(wx, 0, 11, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath();
+      if (c.flat && wx > 0) ctx.ellipse(wx, 2, 12.5, 9, 0, 0, Math.PI * 2); else ctx.arc(wx, 0, 11, 0, Math.PI * 2);
+      ctx.fill();
       ctx.fillStyle = rgb(c.hub);
       ctx.beginPath(); ctx.arc(wx, 0, 6, 0, Math.PI * 2); ctx.fill();
       ctx.strokeStyle = rgb(c.tyre, 0.8);
@@ -1305,7 +1491,7 @@
     // exhaust
     for (const p of particles) {
       const a = (1 - p.age / p.life) * 0.22;
-      ctx.fillStyle = rgb(mix(fog, hex('#ffffff'), 0.2), a);
+      ctx.fillStyle = p.mud ? rgb(shade(hex('#4a3826')), Math.min(1, a * 3)) : rgb(mix(fog, hex('#ffffff'), 0.2), a);
       ctx.beginPath();
       ctx.arc(p.x - state.cam, p.y, p.r, 0, Math.PI * 2);
       ctx.fill();
@@ -1318,7 +1504,9 @@
       carCols.head = mix(CAR.head, hex('#fff4d8'), lightsOn);
       carCols.tail = mix(CAR.tail, hex('#ff4a36'), lightsOn);
     }
-    carCols.passenger = state.passenger ? shade(hex('#1e1c1a')) : null;
+    carCols.passenger = shade(hex('#1e1c1a'));
+    carCols.riders = state.passengers.length;
+    carCols.flat = state.flat;
     drawCar(carX, cy, angle, carW / 11, carCols);
 
     // headlights cutting through the mist
@@ -1429,8 +1617,10 @@
     acctSave: $('acctSave'), acctSignOut: $('acctSignOut'), introAcct: $('introAcct'),
     fullscreen: $('fullscreenToggle'), lowPower: $('lowPower'),
     screenBtn: $('screenBtn'), money: $('money'), cans: $('cans'), nextFuel: $('nextFuel'), passenger: $('passenger'),
-    caption: $('caption'), gameover: $('gameover'), overText: $('overText'), overStats: $('overStats'), restart: $('restartBtn'),
-    actionBtn: document.querySelector('#touch [data-act="action"]'), accountRadioBox: $('accountRadioBox'), spAcctText: $('spAcctText'),
+    caption: $('caption'), gameover: $('gameover'), overBoard: $('overBoard'),
+    garage: $('garage'), garageList: $('garageList'), garageMoney: $('garageMoney'), garageClose: $('garageClose'), overText: $('overText'), overStats: $('overStats'), restart: $('restartBtn'),
+    actionBtn: document.querySelector('#touch [data-act="action"]'),
+    action2Btn: document.querySelector('#touch [data-act="action2"]'), accountRadioBox: $('accountRadioBox'), spAcctText: $('spAcctText'),
     spOpenScreen: $('spOpenScreen'), spDisconnect: $('spDisconnect')
   };
 
@@ -1448,8 +1638,10 @@
   }
 
   let hudTimer = 0;
-  let action = null;
+  let action = null, action2 = null;
   function runAction() { if (action) action.run(); }
+  function runAction2() { if (action2) action2.run(); }
+  window.__lrAction = () => action;
   function updateHud(info, dt) {
     hudTimer -= dt;
     if (hudTimer > 0) return;
@@ -1482,7 +1674,9 @@
     if (ui.cans.innerHTML !== cansHtml) ui.cans.innerHTML = cansHtml;
     const nextWx = nextStationAfter(info.carW + 100);
     ui.nextFuel.textContent = `next fuel ${((nextWx - info.carW) / PXM / 1000).toFixed(1)} km`;
-    ui.passenger.textContent = state.passenger ? `Passenger: ${state.passenger.name}, to ${placeName(state.passenger.dest)}` : '';
+    ui.passenger.textContent = state.passengers.length
+      ? `${state.passengers.length > 1 ? 'Passengers' : 'Passenger'}: ${state.passengers.map((p) => `${p.name} (${placeName(p.dest)})`).join(', ')} · ${state.seats} seat${state.seats > 1 ? 's' : ''}`
+      : (state.seats > 1 ? `${state.seats} passenger seats` : '');
 
     const touch = IS_TOUCH;
     const stInfo = nearestStationInfo(info.carW);
@@ -1490,6 +1684,7 @@
     const gap = (stInfo.wx - info.carW) / PXM;
     let msg = '';
     action = null;
+    action2 = null;
     const fullCan = state.cans.includes(true);
 
     // what's on the road just ahead?
@@ -1498,38 +1693,65 @@
       const d = (sp.m * PXM - info.carW);
       if (d < -90) continue;
       if (d > 520) break;
-      if (!state.done.has(sp.id) && sp.kind !== 'cash' && sp.kind !== 'deer') { ahead = { sp, d }; break; }
+      if (!state.done.has(sp.id) && sp.kind !== 'cash' && sp.kind !== 'deer' && sp.kind !== 'glass') { ahead = { sp, d }; break; }
       if (sp.kind === 'view' && state.done.has(sp.id)) continue;
     }
 
+    const key = (k, t) => (touch ? `Tap ${t}` : `Press ${k}`);
+    const blocker = blockerAhead(info.carW);
+    const leaving = state.passengers.find((p) => info.carW > p.dest * PLACE_EVERY * PXM - 700);
     if (state.over) msg = '';
+    else if (state.stuck != null) {
+      msg = `You’re stuck in the mud. ${key('E', 'Get unstuck')} to rock the car free.`;
+      action = { label: 'Get unstuck', run: getUnstuck };
+    } else if (state.flat && state.v < 0.5) {
+      msg = `Flat tyre. ${key('E', 'Change tyre')} to fit the spare.`;
+      action = { label: 'Change tyre', run: changeTyre };
+    } else if (state.flat) msg = 'Flat tyre! Stop to change it.';
     else if (state.fuel <= 0 && !fullCan) msg = 'Out of fuel…';
-    else if (atSt && stInfo.closed) msg = 'This fuel station is closed. Hope you’ve got enough to reach the next one.';
-    else if (atSt && state.v < 1.5) {
-      const canBuy = state.cans.length < MAX_CANS;
-      msg = state.fuel < 99.5 ? `Filling up… ${Math.round(state.fuel)}%` : 'Tank full.';
-      if (canBuy) {
-        msg += touch ? ` Tap Buy can for a jerry can (£${CAN_PRICE}).` : ` Press E to buy a jerry can (£${CAN_PRICE}).`;
-        action = { label: `Buy can £${CAN_PRICE}`, run: buyCan };
+    else if (state.fuel <= 0 && state.v > 0.5) msg = 'Out of fuel! Coast to a stop, then use your jerry can.';
+    else if (state.fuel <= 0) {
+      msg = `Out of fuel. ${key('J', 'Use can')} to pour in your jerry can.`;
+      action = { label: 'Use can', run: useCan };
+    }
+    else if (blocker && state.v < 0.5) {
+      const what = { sheep: 'Sheep are blocking the road', tree: 'A fallen tree is blocking the road', rocks: 'Rocks have fallen onto the road' }[blocker.kind];
+      msg = `${what}. ${key('E', 'Clear road')} to get out and deal with it.`;
+      action = { label: 'Clear road', run: () => clearBlocker(blocker) };
+    } else if (atSt && stInfo.closed) msg = 'This fuel station is closed. Hope you’ve got enough to reach the next one.';
+    else if (atSt && state.v < 0.5) {
+      if (state.fuel < 96) {
+        msg = touch ? 'Tap Fill up to use the pump, or Garage for jerry cans and upgrades.' : 'Press E to fill up at the pump, or G for the garage (jerry cans and upgrades).';
+        action = { label: 'Fill up', run: fillUp };
+        action2 = { label: 'Garage', run: openGarage };
+      } else {
+        msg = touch ? 'Tank full. Tap Garage for jerry cans and upgrades.' : 'Tank full. Press E (or G) for the garage: jerry cans and upgrades.';
+        action = { label: 'Garage', run: openGarage };
       }
-    } else if (atSt) msg = 'Stop here to fill up';
+    } else if (atSt) msg = 'Stop here to fill up and visit the garage';
     else if (ahead && ahead.sp.kind === 'hitch') {
       const h = hitchInfo(ahead.sp);
-      msg = state.passenger
-        ? 'Someone’s thumbing a lift, but your back seat is taken.'
+      msg = state.passengers.length >= state.seats
+        ? `Someone’s thumbing a lift, but you’ve no free seats.${state.seats < MAX_SEATS ? ' Buy another seat at a garage.' : ''}`
         : `${h.name} wants a lift to ${placeName(h.dest)}. Stop next to them to pick them up.`;
-    } else if (ahead && ahead.sp.kind === 'sheep') msg = touch ? 'Sheep on the road. Stop and wait, or tap Horn.' : 'Sheep on the road. Stop and wait, or press H to honk.';
-    else if (ahead && ahead.sp.kind === 'tree') msg = 'A fallen tree is blocking the road. Stop and wait for help.';
+    } else if (ahead && ahead.sp.kind === 'sheep') msg = 'Sheep on the road ahead. Slow down and stop.';
+    else if (ahead && ahead.sp.kind === 'tree') msg = 'A fallen tree is blocking the road ahead. Slow down and stop.';
+    else if (ahead && ahead.sp.kind === 'rocks') msg = 'Rocks on the road ahead. Slow down and stop.';
+    else if (ahead && ahead.sp.kind === 'mud') msg = 'The road ahead looks very muddy…';
     else if (ahead && ahead.sp.kind === 'view') msg = touch ? 'Viewpoint. Take a photo here.' : 'Viewpoint. Press P to take a photo here.';
-    else if (state.passenger && info.carW > state.passenger.dest * PLACE_EVERY * PXM - 700) msg = `Stop to let ${state.passenger.name} out at ${placeName(state.passenger.dest)}.`;
-    else if (gap > 0 && gap < 260 && state.fuel < 80) msg = stInfo.closed ? 'Fuel stop ahead (it looks closed)' : 'Fuel stop ahead';
-    else if (state.fuel < 15 && fullCan) msg = touch ? 'Running low. Tap Use can to pour in a jerry can.' : 'Running low. Press J to pour in a jerry can.';
+    else if (leaving) msg = `Stop to let ${leaving.name} out at ${placeName(leaving.dest)}.`;
+    else if (gap > 0 && gap < 260 && state.fuel < 80) msg = 'Fuel stop ahead';
+    else if (state.fuel < 15 && fullCan) msg = touch ? 'Running low. Stop and tap Use can to pour in a jerry can.' : 'Running low. Stop and press J to pour in a jerry can.';
     else if (state.fuel < 15) msg = 'Running low on fuel, and no full jerry can…';
 
-    if (!action && fullCan && state.fuel < 75) action = { label: 'Use can', run: () => useCan(false) };
+    if (!action && fullCan && state.fuel < 75 && state.v < 0.5) action = { label: 'Use can', run: useCan };
     if (ui.actionBtn) {
       ui.actionBtn.hidden = !action;
       if (action) ui.actionBtn.textContent = action.label;
+    }
+    if (ui.action2Btn) {
+      ui.action2Btn.hidden = !action2;
+      if (action2) ui.action2Btn.textContent = action2.label;
     }
     ui.prompt.textContent = msg;
   }
@@ -1642,7 +1864,8 @@
     const carW = state.cam + carX;
     let throttle = 0;
 
-    if (state.started && !state.paused && !state.over) {
+    const busy = Minigames.isOpen || garageOpen();
+    if (state.started && !state.paused && !state.over && !busy) {
       readGamepad();
       const goNow = input.go || pad.go, brakeNow = input.brake || pad.brake;
       const canDrive = state.fuel > 0;
@@ -1655,6 +1878,13 @@
       if (throttle) state.v += 5.5 * (1 - state.v / (MAX_V * 1.05)) * dt;
       else if (state.cruise && canDrive) state.v += clamp(state.cruiseV - state.v, -2, 2) * dt;
       if (brakeNow) state.v -= 11 * dt;
+      if (state.flat) state.v = Math.min(state.v, 4);
+      if (state.stuck != null) {
+        state.v = 0;
+        if (throttle && Math.random() < dt * 30) {
+          particles.push({ x: carW - 34 + (Math.random() - 0.5) * 10, y: roadY(carW - 34) - 4, vx: -60 - Math.random() * 80, vy: -60 - Math.random() * 60, r: 2.5, age: 0, life: 0.6, mud: true });
+        }
+      }
 
       const slope = (roadY(carW + 30) - roadY(carW - 30)) / 60;
       if (!state.cruise || !canDrive) state.v -= (0.18 + state.v * 0.012) * dt;
@@ -1663,23 +1893,16 @@
 
       const moved = state.v * dt;
       state.cam += moved * PXM;
-      if (canDrive) state.fuel = Math.max(0, state.fuel - (moved / FUEL_RANGE) * 100 * (throttle ? 1.25 : 0.9));
+      // fuel only burns while the accelerator is down (cruise control holds it down for you, gently)
+      const burn = throttle ? 1.25 : state.cruise ? 0.7 : 0;
+      if (canDrive && burn) state.fuel = Math.max(0, state.fuel - (moved / FUEL_RANGE) * 100 * burn);
       stats.metres += moved;
-
-      // fill up (and fill any empty jerry cans) when stopped at an open station
-      if (atOpenStation(carW) && state.v < 1.5) {
-        state.fuel = Math.min(100, state.fuel + 22 * dt);
-        if (state.cans.includes(false) && state.fuel > 99) {
-          state.cans = state.cans.map(() => true);
-          toast('You filled your jerry cans too.');
-        }
-      }
 
       updateJourney(dt, state.cam + carX);
 
       // out of fuel: use a jerry can if there is one, otherwise the journey ends
       if (state.fuel <= 0) {
-        if (!useCan(true) && state.v < 0.3 && !atOpenStation(state.cam + carX)) {
+        if (!state.cans.includes(true) && state.v < 0.3 && !atOpenStation(state.cam + carX)) {
           state.emptyT += dt;
           if (state.emptyT > 1.6) gameOver();
         }
@@ -1723,7 +1946,8 @@
     saveTimer = 300;
     LR.save(LR.KEYS.journey, {
       cam: state.cam, tod: state.tod, fuel: state.fuel, seed: state.seed, money: state.money, cans: state.cans,
-      passenger: state.passenger, done: [...state.done].slice(-200), carried: state.carried, earned: state.earned
+      passengers: state.passengers, seats: state.seats, stuck: state.stuck, flat: state.flat,
+      done: [...state.done].slice(-200), carried: state.carried, earned: state.earned
     });
     LR.save(LR.KEYS.stats, stats);
   }
@@ -2005,6 +2229,7 @@
   function syncAccountUi() {
     document.body.classList.toggle('signed-in', Account.signedIn);
     ui.acctName.textContent = Account.username;
+    if (!Account.configured && !Account.signedIn) ui.acctError.textContent = 'Accounts aren\u2019t switched on for this site yet.';
     if (Account.status) ui.acctStatus.textContent = Account.status;
     else if (Account.lastSaved) ui.acctStatus.textContent = `Your progress saves to your account automatically. Last saved at ${new Date(Account.lastSaved).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}.`;
     else ui.acctStatus.textContent = 'Your progress saves to your account automatically.';
@@ -2033,6 +2258,7 @@
     try {
       const replaced = await Account.enter(username, password, create);
       ui.acctPass.value = '';
+      Account.submitBest(Math.max(stats.best || 0, (state.cam + carX) / PXM / 1000));
       if (replaced) {
         freezeSaves = true;
         toast('Loading your saved journey…');
@@ -2129,6 +2355,8 @@
     ui.gameover.classList.add('open');
     persist(true);
     Account.pushSave(true);
+    Account.submitBest(stats.best);
+    ui.overBoard.textContent = Account.signedIn ? 'See the leaderboard' : 'See the leaderboard (sign in to get on it)';
   }
 
   function newJourney() {
@@ -2139,7 +2367,10 @@
     state.seed = (Math.random() * 1e6) | 0;
     state.money = 5;
     state.cans = [];
-    state.passenger = null;
+    state.passengers = [];
+    state.seats = 1;
+    state.stuck = null;
+    state.flat = false;
     state.done = new Set();
     state.carried = 0;
     state.earned = 0;
@@ -2162,6 +2393,8 @@
   addEventListener('keydown', (e) => {
     if (e.metaKey || e.ctrlKey || e.altKey) return;
     if (settingsOpen()) { if (e.code === 'Escape') closeSettings(); return; }
+    if (Minigames.isOpen) { if (['Space', 'Enter'].includes(e.code)) e.preventDefault(); if (!e.repeat) Minigames.key(e.code); return; }
+    if (garageOpen()) { if (e.code === 'Escape' || e.code === 'KeyE') closeGarage(); return; }
     if (state.over) { if (e.code === 'Enter' || e.code === 'Space') { e.preventDefault(); newJourney(); } return; }
     if (CarScreen.isOpen && e.code === 'Escape') { CarScreen.close(); return; }
     if (e.code === 'KeyN' && !e.repeat) { begin(); CarScreen.toggle(); return; }
@@ -2174,12 +2407,14 @@
     else if ((e.code === 'KeyP' || e.code === 'Space') && !e.repeat) { e.preventDefault(); if (lastInfo) takePostcard(lastInfo); }
     else if (e.code === 'KeyR' && !e.repeat) toggleRadio();
     else if (e.code === 'KeyM' && !e.repeat) toggleSound();
-    else if (e.code === 'KeyE' && !e.repeat) buyCan();
-    else if (e.code === 'KeyJ' && !e.repeat) useCan(false);
+    else if (e.code === 'KeyE' && !e.repeat) { if (action) action.run(); }
+    else if (e.code === 'KeyJ' && !e.repeat) useCan();
+    else if (e.code === 'KeyG' && !e.repeat) openGarage();
     else if (e.code === 'KeyH' && !e.repeat) honk();
   });
 
   addEventListener('keyup', (e) => {
+    if (Minigames.isOpen) { Minigames.keyUp(e.code); return; }
     if (GO.includes(e.code)) input.go = false;
     if (BRAKE.includes(e.code)) input.brake = false;
   });
@@ -2191,7 +2426,13 @@
     else if (state.started) keepAwake();
   });
   // copy progress to the account once a minute while signed in
-  setInterval(() => { if (Account.signedIn && state.started) { persist(true); Account.pushSave(); } }, 60000);
+  setInterval(() => {
+    if (Account.signedIn && state.started) {
+      persist(true);
+      Account.pushSave();
+      Account.submitBest(Math.max(stats.best || 0, (state.cam + carX) / PXM / 1000));
+    }
+  }, 60000);
 
   ui.intro.addEventListener('pointerdown', begin);
   canvas.addEventListener('pointerdown', begin);
@@ -2211,6 +2452,7 @@
       if (act === 'cruise') toggleCruise();
       if (navigator.vibrate && (act === 'go' || act === 'brake')) navigator.vibrate(6);
       if (act === 'action') runAction();
+      if (act === 'action2') runAction2();
       if (act === 'horn') honk();
     });
     const release = () => {
@@ -2233,6 +2475,8 @@
   resize();
   buildDrops();
   ui.restart.addEventListener('click', newJourney);
+  ui.garageClose.addEventListener('click', closeGarage);
+  ui.garage.addEventListener('pointerdown', (e) => { if (e.target === ui.garage) closeGarage(); });
   syncButtons();
   syncAccountUi();
   updateAlbumLink();

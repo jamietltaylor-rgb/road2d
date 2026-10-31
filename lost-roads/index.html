@@ -60,6 +60,7 @@
     <div id="prompt" class="prompt"></div>
     <nav class="links">
       <a href="album.html" id="albumLink">Album</a>
+      <a href="leaderboard.html" id="boardLink">Leaderboard</a>
       <button type="button" id="radioBtn">Radio off</button>
       <button type="button" id="soundBtn">Sound on</button>
     </nav>
@@ -68,7 +69,7 @@
   <section id="intro">
     <p class="kicker">A slow drive</p>
     <h1>Lost Roads</h1>
-    <p class="lede">Somewhere between the hills and the sea, the road keeps going. Pick up hitchhikers for a bit of money, buy jerry cans, and keep an eye on the fuel: the stations are far apart, and some have shut for good. Run dry with nothing in the boot and the journey's over.</p>
+    <p class="lede">Somewhere between the hills and the sea, the road keeps going. Pick up hitchhikers for a bit of money, spend it at the garage, deal with whatever's blocking the road, and keep an eye on the fuel: the stations are far apart. Run dry with nothing in the boot and the journey's over.</p>
     <dl class="keys touch-keys">
       <dt>Drive</dt><dd>Hold to go</dd>
       <dt>Brake</dt><dd>Hold to slow down</dd>
@@ -80,7 +81,9 @@
       <dt>&uarr; / W</dt><dd>Accelerate</dd>
       <dt>&darr; / S</dt><dd>Brake</dd>
       <dt>C</dt><dd>Cruise control</dd>
-      <dt>E / J</dt><dd>Buy a jerry can / use one</dd>
+      <dt>E</dt><dd>Fill up, clear the road, fix things</dd>
+      <dt>G</dt><dd>Garage (at fuel stations)</dd>
+      <dt>J</dt><dd>Pour in a jerry can (when stopped)</dd>
       <dt>H</dt><dd>Horn</dd>
       <dt>P</dt><dd>Take a postcard</dd>
       <dt>R</dt><dd>Radio</dd>
@@ -100,6 +103,7 @@
     <button type="button" data-act="brake">Brake</button>
     <div class="mid">
       <button type="button" data-act="action" class="small wide" hidden>Use can</button>
+      <button type="button" data-act="action2" class="small wide" hidden>Garage</button>
       <button type="button" data-act="horn" class="small">Horn</button>
       <button type="button" data-act="cruise" class="small">Cruise</button>
       <button type="button" data-act="photo" class="small">Photo</button>
@@ -129,7 +133,7 @@
       <section id="accountSection">
         <h3>Account</h3>
         <div id="acctOut">
-          <p class="note lead">Sign in to keep your progress and postcards safe, and carry on from any phone or computer.</p>
+          <p class="note lead">Sign in to keep your progress and postcards safe, carry on from any phone or computer, and get your furthest journey on the <a href="leaderboard.html">leaderboard</a>.</p>
           <form id="acctForm" autocomplete="on">
             <label class="field"><span class="meta">Username</span><span class="field-row"><input type="text" id="acctUser" name="username" autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="20"></span></label>
             <label class="field"><span class="meta">Password</span><span class="field-row"><input type="password" id="acctPass" name="password" autocomplete="current-password" maxlength="200"></span></label>
@@ -145,6 +149,7 @@
           <p class="acct-name">Signed in as <em id="acctName"></em></p>
           <p class="note" id="acctStatus">Your progress saves to your account automatically.</p>
           <div class="acct-actions">
+            <a href="leaderboard.html" class="link">Leaderboard</a>
             <button type="button" id="acctSave" class="link">Save now</button>
             <button type="button" id="acctSignOut" class="link">Sign out</button>
           </div>
@@ -207,6 +212,22 @@
 
   <div id="caption" aria-live="polite"></div>
 
+  <div id="minigame" aria-hidden="true"></div>
+
+  <aside id="garage" aria-hidden="true">
+    <div class="g-card" role="dialog" aria-labelledby="garageTitle">
+      <header class="g-head">
+        <div>
+          <p class="kicker">Fuel station</p>
+          <h2 id="garageTitle">The garage</h2>
+        </div>
+        <p class="g-money"><span class="meta">Money</span> <span id="garageMoney"></span></p>
+      </header>
+      <div id="garageList"></div>
+      <button type="button" id="garageClose" class="link g-close">Back to the road</button>
+    </div>
+  </aside>
+
   <section id="gameover" aria-live="assertive">
     <div class="over-inner">
       <p class="kicker">End of the road</p>
@@ -214,6 +235,7 @@
       <p id="overText" class="over-text"></p>
       <dl id="overStats" class="over-stats"></dl>
       <button type="button" id="restartBtn" class="over-btn">Start a new journey</button>
+      <a href="leaderboard.html" class="over-link" id="overBoard">See the leaderboard</a>
       <p class="meta over-note">Your postcards stay in your album.</p>
     </div>
   </section>
@@ -223,10 +245,12 @@
   <script src="js/shared.js"></script>
   <script src="js/audio.js"></script>
   <script src="js/spotify.js"></script>
+  <script src="js/supabase-config.js"></script>
   <script src="js/account.js"></script>
   <script src="js/spotify-config.js"></script>
   <script src="js/spotify-account.js"></script>
   <script src="js/carscreen.js"></script>
+  <script src="js/minigames.js"></script>
   <script src="js/game.js"></script>
 </body>
 </html>

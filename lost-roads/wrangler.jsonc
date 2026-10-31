@@ -1,21 +1,9 @@
 {
-  // Cloudflare settings for Lost Roads.
-  // Deploy command in Cloudflare: npx wrangler deploy
+  // Cloudflare settings for Lost Roads (a plain static site).
+  // Works as a Worker (deploy command: npx wrangler deploy) or as a Pages project.
   "name": "lost-roads",
   "compatibility_date": "2026-10-30",
-  // the small server that handles sign-in and cloud saves
-  "main": "worker.js",
-  // the game files themselves
   "assets": {
-    "directory": "./",
-    "binding": "ASSETS"
-  },
-  // the database for accounts, progress and postcards.
-  // Cloudflare creates it automatically the first time you deploy.
-  "d1_databases": [
-    {
-      "binding": "DB",
-      "database_name": "lost-roads-saves"
-    }
-  ]
+    "directory": "./"
+  }
 }

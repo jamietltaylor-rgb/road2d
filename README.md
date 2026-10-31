@@ -51,7 +51,7 @@ wrangler.jsonc         Cloudflare settings, including the storage
 
 ## How the journey works
 
-- **Fuel:** fuel is only used while you're pressing the accelerator. Coasting and braking are free, and cruise control uses a little, because it holds the accelerator for you. Fuel stations are unevenly spaced (roughly 1 to 2.5 miles apart) and all of them are open. The HUD shows how far it is to the next one.
+- **Fuel:** fuel is only used while you're pressing the accelerator. Coasting and braking are free, and cruise control uses a little, because it holds the accelerator for you. Fuel stations are unevenly spaced (roughly 1 to 2.5 miles apart). The first six on every journey are always open, giving you time to buy jerry cans. After that, about one in seven has shut down, but never two in a row. The HUD shows how far it is to the next one, and says "looks shut" when you're getting close to a shut one. A jerry can costs £20 and comes full. Refilling an empty one costs £3 at any open pump, either when you fill up or with **Fill cans** when your tank is already full.
 - **Filling up is a minigame:** stop at the pump and press **E** (or tap **Fill up**). Hold the trigger (or hold Space) to pump. It speeds up the longer you hold, so let go when the needle reaches the green, before it overflows. Filling up also refills any empty jerry cans.
 - **The garage:** stop at any fuel station and press **G** (or tap **Garage**) to buy:
   - **Jerry cans** (£20, up to 3). Each holds 60% of a tank, comes full, and refills whenever you fill up at a pump.
@@ -216,7 +216,7 @@ Money, cans and seats are set near the top of the journey section in `js/game.js
 
 ## Checking an update went live
 
-The start screen shows the version number (for example "Version 15"). If you still see an older number after uploading:
+The start screen shows the version number (for example "Version 16"). If you still see an older number after uploading:
 
 1. Make sure the files went into the **top level** of the GitHub repo, replacing the old ones. `index.html` should sit next to the `js` and `css` folders, not inside a `lost-roads` folder.
 2. In Cloudflare, open the project's Deployments and check that the newest commit has built successfully.

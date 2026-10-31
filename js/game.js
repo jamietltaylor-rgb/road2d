@@ -581,8 +581,9 @@
     ctx.textBaseline = 'alphabetic';
   }
 
-  // Fuel stops are unevenly spaced (and they are all open).
-  // The first few are always open and close together so a new journey can get going.
+  // Fuel stops are unevenly spaced. The first six are always open, so you get a chance
+  // to buy jerry cans at the garage. After that some are shut, but never two in a row,
+  // and the road after a shut one is short enough to reach on a full tank plus a can.
   let stationList = [], stationSeed = null;
   function ensureStations(m) {
     if (stationSeed !== state.seed) { stationList = [{ m: STATION_OFFSET, closed: false }]; stationSeed = state.seed; }
@@ -590,9 +591,9 @@
       const n = stationList.length;
       const prev = stationList[n - 1];
       const r = hash2(n, 500 + state.seed * 7), r2 = hash2(n, 900 + state.seed * 7);
-      const gap = n < 4 ? 1500 + r * 900 : 1600 + r * 2300;
-      const closed = false;   // every station is open
-      void r2;
+      let gap = n < 4 ? 1500 + r * 900 : 1600 + r * 2300;
+      if (prev.closed) gap = 1200 + r * 1000;
+      const closed = n >= 6 && !prev.closed && gap <= 2800 && r2 < 0.35;
       stationList.push({ m: prev.m + gap, closed });
     }
   }
@@ -693,7 +694,7 @@
   // ---------------------------------------------------------------------------
   // The journey: hitchhikers, things on the road, money and jerry cans
   // ---------------------------------------------------------------------------
-  const CAN_PRICE = 20, CAN_FUEL = 60, MAX_CANS = 3;
+  const CAN_PRICE = 20, CAN_FILL_PRICE = 3, CAN_FUEL = 60, MAX_CANS = 3;
   const SEAT_PRICES = { 2: 40, 3: 90 };   // price of the 2nd and 3rd passenger seat
   const MAX_SEATS = 3;
   const NAMES = ['Margaret', 'Tom', 'Priya', 'Ewan', 'Aled', 'Ruth', 'Kwame', 'Isla', 'Dougie', 'Mei', 'Frank', 'Niamh', 'Owen', 'Sadie', 'Bill', 'Ada', 'Jonah', 'Elsie', 'Rafi', 'Bryony'];
@@ -850,7 +851,7 @@
     const cansFull = state.cans.filter(Boolean).length;
     items.push({
       name: 'Jerry can',
-      desc: `Holds ${CAN_FUEL}% of a tank. Comes full, and refills whenever you fill up at a pump. Stop the car to pour it in. You have ${state.cans.length} of ${MAX_CANS}${state.cans.length ? ` (${cansFull} full)` : ''}.`,
+      desc: `Holds ${CAN_FUEL}% of a tank. Comes full. Empty cans are refilled for \u00a3${CAN_FILL_PRICE} each when you fill up at a pump. Stop the car to pour it in. You have ${state.cans.length} of ${MAX_CANS}${state.cans.length ? ` (${cansFull} full)` : ''}.`,
       price: CAN_PRICE,
       can: state.cans.length < MAX_CANS,
       why: 'The boot is full',
@@ -958,6 +959,19 @@
     return true;
   }
 
+  function fillCans() {
+    const empties = state.cans.filter((c) => !c).length;
+    if (!empties) return;
+    const afford = Math.min(empties, Math.floor(state.money / CAN_FILL_PRICE));
+    if (!afford) { toast(`Filling a jerry can costs \u00a3${CAN_FILL_PRICE}. Pick up some hitchhikers to earn more.`); return; }
+    let filled = 0;
+    state.cans = state.cans.map((c) => { if (c || filled >= afford) return c; filled++; return true; });
+    state.money -= filled * CAN_FILL_PRICE;
+    RoadAudio.glug();
+    toast(`Filled ${filled === 1 ? 'a jerry can' : `${filled} jerry cans`} (\u2212\u00a3${filled * CAN_FILL_PRICE}).`);
+    persist(true);
+  }
+
   function fillUp() {
     const carW = state.cam + carX;
     if (!atOpenStation(carW)) return;
@@ -970,9 +984,13 @@
       onWin: (r) => {
         state.fuel = r.fuel;
         const empties = state.cans.filter((c) => !c).length;
-        state.cans = state.cans.map(() => true);
+        const afford = Math.min(empties, Math.floor(state.money / CAN_FILL_PRICE));
+        let filled = 0;
+        state.cans = state.cans.map((c) => { if (c || filled >= afford) return c; filled++; return true; });
+        if (filled) { state.money -= filled * CAN_FILL_PRICE; }
         let msg = r.spilled ? 'Full, but you splashed petrol down the side of the car.' : 'Filled up to the brim.';
-        if (empties) msg += ` You filled your jerry can${empties > 1 ? 's' : ''} too.`;
+        if (filled) msg += ` You filled ${filled === 1 ? 'your jerry can' : `${filled} jerry cans`} too (\u2212\u00a3${filled * CAN_FILL_PRICE}).`;
+        if (filled < empties) msg += ` You couldn’t afford to fill ${empties - filled === 1 ? 'the other can' : `${empties - filled} more cans`} (\u00a3${CAN_FILL_PRICE} each).`;
         toast(msg);
         persist(true);
       },
@@ -1925,7 +1943,9 @@
     }
     if (ui.cans.innerHTML !== cansHtml) ui.cans.innerHTML = cansHtml;
     const nextWx = nextStationAfter(info.carW + 100);
-    ui.nextFuel.textContent = `next fuel ${((nextWx - info.carW) / PXM / MILE).toFixed(1)} mi`;
+    const nextMi = (nextWx - info.carW) / PXM / MILE;
+    const nextShut = nearestStationInfo(nextWx).closed;
+    ui.nextFuel.textContent = `next fuel ${nextMi.toFixed(1)} mi${nextShut && nextMi < 0.6 ? ' · looks shut' : ''}`;
     ui.passenger.textContent = state.passengers.length
       ? `${state.passengers.length > 1 ? 'Passengers' : 'Passenger'}: ${state.passengers.map((p) => `${p.name} (${placeName(p.dest)})`).join(', ')} · ${state.seats} seat${state.seats > 1 ? 's' : ''}`
       : (state.seats > 1 ? `${state.seats} passenger seats` : '');
@@ -1980,11 +2000,15 @@
         : blocker.kind === 'ford' ? `The river’s flooded over the road. ${key('E', 'Cross ford')} to edge across.`
         : `${what}. ${key('E', 'Clear road')} to get out and deal with it.`;
       action = { label: blocker.kind === 'gate' ? 'Open gate' : blocker.kind === 'ford' ? 'Cross ford' : 'Clear road', run: () => clearBlocker(blocker) };
-    } else if (atSt && stInfo.closed) msg = 'This fuel station is closed. Hope you’ve got enough to reach the next one.';
+    } else if (atSt && stInfo.closed) msg = 'This fuel station has shut down. Hope you’ve got enough fuel, or a full jerry can, to reach the next one.';
     else if (atSt && state.v < 0.5) {
       if (state.fuel < 92) {
         msg = touch ? 'Tap Fill up to use the pump, or Garage for jerry cans and upgrades.' : 'Press E to fill up at the pump, or G for the garage (jerry cans and upgrades).';
         action = { label: 'Fill up', run: fillUp };
+        action2 = { label: 'Garage', run: openGarage };
+      } else if (state.cans.some((c) => !c)) {
+        msg = touch ? `Tank full. Tap Fill cans to fill your empty jerry cans (\u00a3${CAN_FILL_PRICE} each), or Garage.` : `Tank full. Press E to fill your empty jerry cans (\u00a3${CAN_FILL_PRICE} each), or G for the garage.`;
+        action = { label: 'Fill cans', run: fillCans };
         action2 = { label: 'Garage', run: openGarage };
       } else {
         msg = touch ? 'Tank full. Tap Garage for jerry cans and upgrades.' : 'Tank full. Press E (or G) for the garage: jerry cans and upgrades.';

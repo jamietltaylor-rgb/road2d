@@ -69,6 +69,23 @@ wrangler.jsonc         Cloudflare settings, including the storage
 - **Other things on the road:** deer leaping across (mostly at night), £5 and £10 notes on the verge, **viewpoints** where a gallery buys your postcard for £6, and thunderstorms.
 - **Landscapes (10):** Pine Valley, Heather Moor, Salt Coast, High Pass, Rust Woods, Birch Wood, Old Orchard, Wind Farm Ridge, Dune Road and Peat Bog.
 
+
+### Roadside events
+
+Roadside jobs are dealt from a shuffled deck on every journey, so you'll meet every kind before any of them repeats. They come up roughly every mile or so. Every job has a "pay someone" option if you've got the money.
+
+| Event | What you do |
+| --- | --- |
+| Fallen tree | Cut it into pieces with a chainsaw, then drag them off the road |
+| Rockfall | Drag the boulders onto the verge (the big ones are heavy) |
+| Sheep | Shoo them off the road (some wander back) |
+| Deep mud | Rev at the right moment to rock the car free |
+| Glass on the road | Fit the spare wheel: jack it up, undo the nuts, swap, tighten |
+| Farm gate | Slide the stiff bolt back, then swing the gate open |
+| Flooded ford | Keep the revs in the green band while you creep across |
+| Muddy tractor | It sprays your windscreen, so stop and scrub it clean (or use the wipers) |
+| Flat battery | The engine dies. Clip the jump leads on in the right order, then turn the key |
+
 ## The car screen
 
 Everything that used to be a button on the screen now lives on the car's touchscreen. Open it with **N** or the **Car screen** button at the side of the screen (on phones, between Brake and Drive). Its home screen has these apps:
@@ -199,7 +216,7 @@ Money, cans and seats are set near the top of the journey section in `js/game.js
 
 ## Checking an update went live
 
-The start screen shows the version number (for example "Version 14"). If you still see an older number after uploading:
+The start screen shows the version number (for example "Version 15"). If you still see an older number after uploading:
 
 1. Make sure the files went into the **top level** of the GitHub repo, replacing the old ones. `index.html` should sit next to the `js` and `css` folders, not inside a `lost-roads` folder.
 2. In Cloudflare, open the project's Deployments and check that the newest commit has built successfully.

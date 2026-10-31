@@ -705,7 +705,352 @@ window.Minigames = (() => {
     };
   }
 
-  const GAMES = { tree: treeGame, rocks: rocksGame, sheep: sheepGame, mud: mudGame, tyre: tyreGame, pump: pumpGame, can: canGame };
+  // ---------------------------------------------------------------------------
+  // 8. Farm gate: slide the bolt back, then swing the gate open
+  // ---------------------------------------------------------------------------
+  function gateGame() {
+    const hinge = { x: 120, y: 240 };
+    const LEN = 520;
+    let bolt = 0, angle = 0, phase = 'bolt', drag = null, stiff = 0;
+    const boltPos = () => ({ x: hinge.x + LEN - 30 - bolt * 60, y: hinge.y - 6 });
+    return {
+      kicker: 'Roadside job', title: 'Open the farm gate',
+      pay: { label: 'Wait for the farmer', cost: 5 },
+      get hint() {
+        if (phase === 'bolt') return 'Drag the rusty bolt to the left to unlatch the gate. It sticks a bit.';
+        return 'Now drag the end of the gate round onto the verge to swing it open.';
+      },
+      get progress() { return phase === 'bolt' ? bolt * 0.4 : 0.4 + 0.6 * (angle / 1.25); },
+      step(dt) {
+        stiff = Math.max(0, stiff - dt);
+        return phase === 'swing' && angle >= 1.25;
+      },
+      draw() {
+        drawRoadScene();
+        // posts
+        g.fillStyle = C.barkDark;
+        g.fillRect(hinge.x - 14, hinge.y - 50, 20, 100);
+        g.fillRect(hinge.x + LEN + 6, hinge.y - 50, 20, 100);
+        // the gate (seen from above, so it swings like a door)
+        g.save();
+        g.translate(hinge.x, hinge.y);
+        g.rotate(-angle);
+        g.fillStyle = '#c4b89d';
+        for (let i = 0; i < 5; i++) g.fillRect(0, -26 + i * 12, LEN, 6);
+        g.fillRect(0, -28, 10, 62);
+        g.fillRect(LEN - 10, -28, 10, 62);
+        g.save(); g.translate(8, 30); g.rotate(-0.12); g.fillRect(0, -3, LEN - 10, 6); g.restore();
+        g.restore();
+        // bolt and keeper
+        if (phase === 'bolt') {
+          const b = boltPos();
+          g.fillStyle = '#6f6a62';
+          g.fillRect(hinge.x + LEN - 110, b.y - 4, 140, 8);
+          g.fillStyle = '#8c3b2a';
+          roundRect(b.x - 18, b.y - 12, 36, 24, 5); g.fill();
+          g.strokeStyle = '#efe7d6'; g.lineWidth = 2; g.setLineDash([5, 5]);
+          g.beginPath(); g.moveTo(b.x - 30, b.y + 26); g.lineTo(hinge.x + LEN - 110, b.y + 26); g.stroke(); g.setLineDash([]);
+        } else if (angle < 1.25) {
+          const ex = hinge.x + Math.cos(-angle) * (LEN - 20), ey = hinge.y + Math.sin(-angle) * (LEN - 20);
+          g.strokeStyle = '#efe7d6'; g.lineWidth = 2;
+          g.beginPath(); g.arc(ex, ey, 22, 0, Math.PI * 2); g.stroke();
+        }
+      },
+      down(x, y) {
+        if (phase === 'bolt') { const b = boltPos(); if (Math.hypot(x - b.x, y - b.y) < 46) drag = { ox: x }; }
+        else {
+          const ex = hinge.x + Math.cos(-angle) * (LEN - 20), ey = hinge.y + Math.sin(-angle) * (LEN - 20);
+          if (Math.hypot(x - ex, y - ey) < 90) drag = {};
+        }
+      },
+      move(x, y) {
+        if (!drag) return;
+        if (phase === 'bolt') {
+          // the bolt is stiff: it only moves part of the way you drag, and catches now and then
+          const want = clamp((hinge.x + LEN - 30 - x) / 60, 0, 1);
+          if (want > bolt && stiff <= 0) {
+            bolt = Math.min(want, bolt + 0.05);
+            if (Math.random() < 0.06) { stiff = 0.25; RoadAudio.ratchet(); }
+          }
+          if (bolt >= 1) { phase = 'swing'; drag = null; RoadAudio.thud(); }
+        } else {
+          const a = -Math.atan2(y - hinge.y, x - hinge.x);
+          if (a > angle - 0.4) angle = clamp(Math.max(angle, Math.min(a, angle + 0.08)), 0, 1.25);
+        }
+      },
+      up() { drag = null; }
+    };
+  }
+
+  // ---------------------------------------------------------------------------
+  // 9. Flooded ford: keep the revs in the green while the car creeps across
+  // ---------------------------------------------------------------------------
+  function fordGame() {
+    let revs = 0.55, holding = false, pos = 0, band = 0.55, bandT = 0, grace = 2, stalls = 0, msg = '', msgT = 0, bubbles = [], wave = 0;
+    const WIDTH = 0.24;
+    return {
+      kicker: 'Roadside job', title: 'Cross the flooded ford',
+      pay: { label: 'Get towed across', cost: 10 },
+      tap: 'Rev',
+      get hint() {
+        if (msgT > 0) return msg;
+        return 'Hold Rev (or hold Space) to keep the engine’s revs inside the green band. Too low and you stall, too high and you send a wave into the engine.';
+      },
+      get progress() { return pos; },
+      hold(on) { holding = on; },
+      step(dt) {
+        msgT -= dt;
+        bandT += dt;
+        band = 0.55 + Math.sin(bandT * 0.9) * 0.12 + Math.sin(bandT * 2.3) * 0.05;
+        grace -= dt;
+        revs += (holding ? 0.7 : -0.45) * dt;
+        revs = clamp(revs, grace > 0 ? 0.2 : 0, 1);
+        const inBand = Math.abs(revs - band) < WIDTH / 2;
+        if (inBand) pos = Math.min(1, pos + dt / 8);
+        if (revs < 0.1) {
+          stalls++; revs = 0.45; grace = 1.2; pos = Math.max(0, pos - 0.06);
+          msg = 'Stalled! The car rolls back a little. Keep the revs up.'; msgT = 2; RoadAudio.thud();
+        } else if (revs > 0.95) {
+          wave = 1; revs = 0.6; pos = Math.max(0, pos - 0.1);
+          msg = 'Too fast! A wave washes back over the bonnet. Ease off.'; msgT = 2; RoadAudio.bump();
+        }
+        wave = Math.max(0, wave - dt);
+        if (holding && Math.random() < dt * 20) bubbles.push({ x: 0, y: 0, vx: rand(-30, -10), vy: rand(-20, -5), age: 0 });
+        for (const b of bubbles) { b.age += dt; b.x += b.vx * dt; b.y += b.vy * dt; }
+        bubbles = bubbles.filter((b) => b.age < 1);
+        if (holding && Math.random() < dt * 1.5) RoadAudio.rev(true);
+        return pos >= 1;
+      },
+      draw() {
+        g.fillStyle = C.sky; g.fillRect(0, 0, GW, GH);
+        g.fillStyle = C.field; g.fillRect(0, 250, GW, GH - 250);
+        // river
+        g.fillStyle = '#6b6650'; g.fillRect(90, 268, 620, 120);
+        g.strokeStyle = 'rgba(220,226,222,0.4)'; g.lineWidth = 2;
+        g.beginPath();
+        for (let i = 0; i < 9; i++) { const wx = 100 + ((i * 80 + bandT * 40) % 600); g.moveTo(wx, 290 + (i % 3) * 30); g.lineTo(wx + 26, 290 + (i % 3) * 30); }
+        g.stroke();
+        // car creeping across
+        const cx = 70 + pos * 560, cy = 282;
+        g.fillStyle = C.paint; roundRect(cx, cy - 46, 150, 46, 10); g.fill();
+        g.fillStyle = C.paintDark; roundRect(cx + 26, cy - 72, 92, 30, 8); g.fill();
+        g.fillStyle = '#9fb0b8'; g.fillRect(cx + 34, cy - 66, 34, 20); g.fillRect(cx + 76, cy - 66, 34, 20);
+        g.fillStyle = 'rgba(107,102,80,0.92)'; g.fillRect(cx - 10, cy - 14, 170, 20);
+        if (wave > 0) { g.fillStyle = `rgba(200,206,200,${wave})`; g.beginPath(); g.ellipse(cx + 150, cy - 30, 40 * wave + 10, 30 * wave, 0, 0, Math.PI * 2); g.fill(); }
+        g.fillStyle = 'rgba(230,236,232,0.7)';
+        for (const b of bubbles) g.fillRect(cx + b.x, cy - 8 + b.y, 3, 3);
+        // rev counter
+        const gx = 690, gy = 110, R = 70;
+        const ang = (v) => Math.PI + v * Math.PI;
+        g.lineWidth = 14;
+        g.strokeStyle = 'rgba(20,20,20,0.35)'; g.beginPath(); g.arc(gx, gy, R, Math.PI, 0); g.stroke();
+        g.strokeStyle = '#7fae6b'; g.beginPath(); g.arc(gx, gy, R, ang(band - WIDTH / 2), ang(band + WIDTH / 2)); g.stroke();
+        g.strokeStyle = '#c0533a'; g.beginPath(); g.arc(gx, gy, R, ang(0.92), ang(1)); g.stroke();
+        g.strokeStyle = '#efe7d6'; g.lineWidth = 4;
+        g.beginPath(); g.moveTo(gx, gy); g.lineTo(gx + Math.cos(ang(revs)) * (R + 6), gy + Math.sin(ang(revs)) * (R + 6)); g.stroke();
+        g.fillStyle = '#26231f'; g.font = '500 11px "IBM Plex Mono", monospace'; g.fillText('REVS', gx - 15, gy + 22);
+      },
+      down() { this.hold(true); },
+      move() {},
+      up() { this.hold(false); },
+      key(code) { if (code === 'Space' || code === 'KeyE' || code === 'Enter') this.hold(true); },
+      keyUp(code) { if (code === 'Space' || code === 'KeyE' || code === 'Enter') this.hold(false); }
+    };
+  }
+
+  // ---------------------------------------------------------------------------
+  // 10. Muddy windscreen: scrub it clean with a cloth
+  // ---------------------------------------------------------------------------
+  function wipeGame() {
+    const COLS = 20, ROWS = 9, x0 = 90, y0 = 70, w = 620, h = 280;
+    const mud = [], jit = [];
+    for (let i = 0; i < COLS * ROWS; i++) { mud.push(0.6 + Math.random() * 0.4); jit.push([rand(-6, 6), rand(-6, 6), rand(0.9, 1.4)]); }
+    const ptr = { x: -100, y: -100, down: false, lx: 0, ly: 0 };
+    let wiper = -1, wiperDir = 1, wiping = false, squeak = 0;
+    const left = () => mud.reduce((a, b) => a + b, 0) / mud.length;
+    const scrub = (x, y, amt) => {
+      for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
+        const cx = x0 + (c + 0.5) * (w / COLS), cy = y0 + (r + 0.5) * (h / ROWS);
+        const d = Math.hypot(cx - x, cy - y);
+        if (d < 56) mud[r * COLS + c] = Math.max(0, mud[r * COLS + c] - amt * (1 - d / 70));
+      }
+    };
+    return {
+      kicker: 'Roadside job', title: 'Clean the windscreen',
+      pay: { label: 'Pay at the farm shop', cost: 4 },
+      tap: 'Wipers',
+      get hint() { return 'Scrub the mud off with the cloth: hold and rub back and forth over the glass. Or hold Wipers (or Space), which is slower.'; },
+      get progress() { return clamp((0.8 - left()) / (0.8 - 0.1), 0, 1); },
+      hold(on) { wiping = on; },
+      step(dt) {
+        squeak -= dt;
+        if (wiping) {
+          wiper += wiperDir * dt * 2.4;
+          if (wiper > 1 || wiper < -1) { wiperDir *= -1; wiper = clamp(wiper, -1, 1); }
+          const a = wiper * 1.2 - Math.PI / 2;
+          for (let k = 0; k <= 8; k++) scrub(400 + Math.cos(a) * k * 32, 360 + Math.sin(a) * k * 32, dt * 0.55);
+          if (squeak <= 0) { RoadAudio.ratchet(); squeak = 0.4; }
+        }
+        return left() < 0.1;
+      },
+      draw() {
+        g.fillStyle = '#2a2724'; g.fillRect(0, 0, GW, GH);
+        // the view through the glass
+        g.fillStyle = C.sky; roundRect(x0, y0, w, h, 26); g.fill();
+        g.fillStyle = C.field; g.fillRect(x0, y0 + h * 0.62, w, h * 0.38);
+        g.fillStyle = C.road; g.beginPath(); g.moveTo(x0 + w * 0.42, y0 + h * 0.62); g.lineTo(x0 + w * 0.58, y0 + h * 0.62); g.lineTo(x0 + w * 0.8, y0 + h); g.lineTo(x0 + w * 0.2, y0 + h); g.closePath(); g.fill();
+        // mud: soft overlapping smears, clipped to the glass
+        g.save();
+        roundRect(x0, y0, w, h, 26); g.clip();
+        const cw = w / COLS, ch = h / ROWS;
+        for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
+          const i = r * COLS + c, m = mud[i];
+          if (m <= 0.03) continue;
+          const [jx, jy, js] = jit[i];
+          g.fillStyle = `rgba(82,62,40,${Math.min(0.85, m * 0.75)})`;
+          g.beginPath();
+          g.ellipse(x0 + (c + 0.5) * cw + jx, y0 + (r + 0.5) * ch + jy, cw * 0.95 * js, ch * 0.9 * js, (i % 7) * 0.4, 0, Math.PI * 2);
+          g.fill();
+        }
+        g.restore();
+        g.strokeStyle = '#1b1c1d'; g.lineWidth = 14; roundRect(x0, y0, w, h, 26); g.stroke();
+        // wiper arm
+        const a = wiper * 1.2 - Math.PI / 2;
+        g.strokeStyle = '#1b1c1d'; g.lineWidth = 6;
+        g.beginPath(); g.moveTo(400, 360); g.lineTo(400 + Math.cos(a) * 270, 360 + Math.sin(a) * 270); g.stroke();
+        // the cloth
+        if (ptr.down) {
+          g.fillStyle = '#d8c9a6';
+          g.save(); g.translate(ptr.x, ptr.y); g.rotate(0.3);
+          roundRect(-30, -22, 60, 44, 8); g.fill();
+          g.restore();
+        }
+      },
+      down(x, y) { ptr.down = true; ptr.x = ptr.lx = x; ptr.y = ptr.ly = y; },
+      move(x, y) {
+        ptr.x = x; ptr.y = y;
+        if (!ptr.down) return;
+        const d = Math.hypot(x - ptr.lx, y - ptr.ly);
+        if (d > 2) { scrub(x, y, Math.min(0.6, d / 90)); ptr.lx = x; ptr.ly = y; }
+      },
+      up() { ptr.down = false; },
+      key(code) { if (code === 'Space' || code === 'KeyE' || code === 'Enter') this.hold(true); },
+      keyUp(code) { if (code === 'Space' || code === 'KeyE' || code === 'Enter') this.hold(false); }
+    };
+  }
+
+  // ---------------------------------------------------------------------------
+  // 11. Flat battery: clip the jump leads on in the right order, then turn the key
+  // ---------------------------------------------------------------------------
+  function jumpGame() {
+    // your battery on the left, the helper's on the right
+    const T = {
+      yourPlus: { x: 200, y: 200, label: '+' }, yourEarth: { x: 260, y: 330, label: 'Engine (bare metal)' },
+      theirPlus: { x: 560, y: 200, label: '+' }, theirMinus: { x: 640, y: 200, label: '−' }
+    };
+    const steps = [
+      { clamp: 0, to: 'yourPlus', say: 'Red lead onto the + on YOUR flat battery.' },
+      { clamp: 1, to: 'theirPlus', say: 'Other red end onto the + on THEIR battery.' },
+      { clamp: 2, to: 'theirMinus', say: 'Black lead onto the − on THEIR battery.' },
+      { clamp: 3, to: 'yourEarth', say: 'Last black end onto bare metal on YOUR engine, away from the battery.' }
+    ];
+    const clamps = [
+      { x: 380, y: 400, red: true }, { x: 420, y: 400, red: true },
+      { x: 460, y: 400, red: false }, { x: 500, y: 400, red: false }
+    ];
+    let step = 0, drag = null, spark = 0, crank = 0, started = false, wrong = 0;
+    return {
+      kicker: 'Breakdown', title: 'Jump start the car',
+      pay: { label: 'Call roadside recovery', cost: 12 },
+      tap: 'Turn key',
+      get hint() {
+        if (wrong > 0) return 'Sparks! Wrong place. Check the order and try again.';
+        if (step < 4) return `Drag the clips to hook up the jump leads. Step ${step + 1} of 4: ${steps[step].say}`;
+        return 'All hooked up. Tap Turn key (or press Space) a few times to crank it.';
+      },
+      get progress() { return step < 4 ? step * 0.2 : 0.8 + crank * 0.2; },
+      press() {
+        if (step < 4 || started) return;
+        crank = Math.min(1, crank + 0.34);
+        RoadAudio.rev(crank >= 1);
+        if (crank >= 1) started = true;
+      },
+      step(dt) {
+        spark = Math.max(0, spark - dt);
+        wrong = Math.max(0, wrong - dt);
+        if (!started) crank = Math.max(0, crank - dt * 0.12);
+        return started;
+      },
+      draw() {
+        g.fillStyle = '#3a3c40'; g.fillRect(0, 0, GW, GH);
+        // two engine bays
+        for (const [bx, name] of [[110, 'YOUR CAR'], [470, 'THEIR CAR']]) {
+          g.fillStyle = '#26282b'; roundRect(bx, 110, 260, 260, 14); g.fill();
+          g.fillStyle = 'rgba(239,234,224,0.5)'; g.font = '500 12px "IBM Plex Mono", monospace'; g.fillText(name, bx + 12, 100);
+          g.fillStyle = '#1b1c1d'; roundRect(bx + 60, 170, 150, 70, 6); g.fill();
+        }
+        g.fillStyle = '#6d6f6c'; roundRect(210, 300, 120, 50, 8); g.fill();   // your engine block
+        for (const [k, t] of Object.entries(T)) {
+          const next = step < 4 && steps[step].to === k;
+          g.fillStyle = k.includes('Plus') ? '#b5462f' : k === 'theirMinus' ? '#2b2d2e' : '#8a8c88';
+          g.beginPath(); g.arc(t.x, t.y, 14, 0, Math.PI * 2); g.fill();
+          g.fillStyle = '#efe7d6'; g.font = '600 16px "IBM Plex Mono", monospace';
+          if (t.label.length === 1) g.fillText(t.label, t.x - 5, t.y + 6);
+          if (next) { g.strokeStyle = '#efe7d6'; g.lineWidth = 2; g.setLineDash([4, 4]); g.beginPath(); g.arc(t.x, t.y, 24, 0, Math.PI * 2); g.stroke(); g.setLineDash([]); }
+        }
+        // leads
+        const pairs = [[0, 1], [2, 3]];
+        for (const [a, b] of pairs) {
+          g.strokeStyle = clamps[a].red ? '#b5462f' : '#151515'; g.lineWidth = 5;
+          g.beginPath(); g.moveTo(clamps[a].x, clamps[a].y); g.quadraticCurveTo((clamps[a].x + clamps[b].x) / 2, 440, clamps[b].x, clamps[b].y); g.stroke();
+        }
+        for (const c of clamps) {
+          g.fillStyle = c.red ? '#d0533a' : '#2b2b2b';
+          g.save(); g.translate(c.x, c.y); roundRect(-11, -16, 22, 32, 4); g.fill();
+          g.fillStyle = '#c8c8c0'; g.fillRect(-7, -22, 14, 8); g.restore();
+        }
+        if (spark > 0) {
+          g.strokeStyle = `rgba(255,230,140,${spark * 2})`; g.lineWidth = 2;
+          g.beginPath();
+          for (let i = 0; i < 8; i++) { const a = rand(0, 6.3); g.moveTo(spark_x, spark_y); g.lineTo(spark_x + Math.cos(a) * 26, spark_y + Math.sin(a) * 26); }
+          g.stroke();
+        }
+        if (step >= 4) {
+          g.fillStyle = 'rgba(20,20,20,0.35)'; g.fillRect(60, 30, 200, 12);
+          g.fillStyle = started ? '#7fae6b' : '#d0662f'; g.fillRect(60, 30, 200 * crank, 12);
+          g.fillStyle = '#efe7d6'; g.font = '500 11px "IBM Plex Mono", monospace'; g.fillText('CRANKING', 60, 24);
+        }
+      },
+      down(x, y) {
+        if (step >= 4) { this.press(); return; }
+        const c = clamps.map((q, i) => ({ q, i })).filter(({ q, i }) => !q.on && Math.hypot(q.x - x, q.y - y) < 34)[0];
+        if (c) drag = c;
+      },
+      move(x, y) { if (drag) { drag.q.x = x; drag.q.y = y; } },
+      up() {
+        if (!drag) return;
+        const { q, i } = drag;
+        drag = null;
+        const hit = Object.entries(T).find(([, t]) => Math.hypot(t.x - q.x, t.y - q.y) < 34);
+        if (!hit) return;
+        const want = steps[step];
+        if (hit[0] === want.to && i === want.clamp) {
+          q.x = hit[1].x; q.y = hit[1].y + 4; q.on = true; step++; RoadAudio.ratchet();
+        } else if (hit[0] === want.to && clamps[want.clamp].red === q.red) {
+          // the other clip of the same colour is fine too: swap roles
+          [clamps[i], clamps[want.clamp]] = [clamps[want.clamp], clamps[i]];
+          const qq = clamps[want.clamp]; qq.x = hit[1].x; qq.y = hit[1].y + 4; qq.on = true; step++; RoadAudio.ratchet();
+        } else {
+          spark = 0.5; wrong = 2; spark_x = q.x; spark_y = q.y; RoadAudio.thud();
+          q.x = 380 + i * 40; q.y = 400;
+        }
+      },
+      key(code) { if (code === 'Space' || code === 'KeyE' || code === 'Enter') this.press(); }
+    };
+  }
+  let spark_x = 0, spark_y = 0;
+
+  const GAMES = { tree: treeGame, rocks: rocksGame, sheep: sheepGame, mud: mudGame, tyre: tyreGame, pump: pumpGame, can: canGame, gate: gateGame, ford: fordGame, wipe: wipeGame, jump: jumpGame };
 
   // ---------------------------------------------------------------------------
   // Running a game

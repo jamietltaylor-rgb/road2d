@@ -213,6 +213,8 @@
     seats: saved && saved.seats ? saved.seats : 1,
     stuck: saved && saved.stuck != null ? saved.stuck : null,
     flat: saved ? !!saved.flat : false,
+    dead: saved ? !!saved.dead : false,
+    mucky: saved ? !!saved.mucky : false,
     done: new Set(saved && saved.done ? saved.done : []),
     carried: saved ? saved.carried || 0 : 0,
     earned: saved ? saved.earned || 0 : 0,
@@ -720,19 +722,32 @@
 
   let spots = [], spotSeed = null;
   const ev = {};
+  // Roadside jobs come from a shuffled deck, so every kind turns up before any repeats.
+  // The order is different on every journey but stays the same if you reload.
+  const EVENTS = ['tree', 'sheep', 'rocks', 'mud', 'glass', 'gate', 'ford', 'tractor', 'battery'];
+  let eventCount = 0;
+  function eventKind(n) {
+    const round = Math.floor(n / EVENTS.length);
+    const deck = EVENTS.slice();
+    for (let i = deck.length - 1; i > 0; i--) {
+      const j = Math.floor(hash2(i + round * 31, state.seed * 13 + 4242) * (i + 1));
+      [deck[i], deck[j]] = [deck[j], deck[i]];
+    }
+    return deck[n % EVENTS.length];
+  }
   function ensureSpots(uptoM) {
-    if (spotSeed !== state.seed) { spots = []; spotSeed = state.seed; }
+    if (spotSeed !== state.seed) { spots = []; spotSeed = state.seed; eventCount = 0; }
     let m = spots.length ? spots[spots.length - 1].m : 260;
     let k = spots.length ? spots[spots.length - 1].id + 1 : 0;
     while (m < uptoM) {
       const r = (i) => hash2(k, state.seed * 31 + i * 977);
-      m += 450 + r(1) * 750;
+      m += 420 + r(1) * 620;
       const near = Math.abs(stationWorldX(stationIndexNear(m)) / PXM - m) < 140 || Math.abs((Math.round(m / PLACE_EVERY) * PLACE_EVERY) - m) < 60;
       if (!near) {
         const p = r(2);
-        let kind = p < 0.34 ? 'hitch' : p < 0.44 ? 'sheep' : p < 0.53 ? 'tree' : p < 0.6 ? 'rocks' : p < 0.67 ? 'mud' : p < 0.73 ? 'glass'
-          : p < 0.82 ? 'cash' : p < 0.92 ? 'view' : 'deer';
+        let kind = p < 0.3 ? 'hitch' : p < 0.36 ? 'cash' : p < 0.43 ? 'view' : p < 0.48 ? 'deer' : 'event';
         if (spots.length === 0) kind = 'hitch';
+        if (kind === 'event') kind = eventKind(eventCount++);
         spots.push({ id: k, m, kind, r: r(3), r2: r(4), r3: r(5) });
       }
       k++;
@@ -975,7 +990,7 @@
   }
 
   // ---- roadside jobs (minigames) ----
-  const BLOCKERS = { sheep: 80, tree: 40, rocks: 50 };
+  const BLOCKERS = { sheep: 80, tree: 40, rocks: 50, gate: 30, ford: 90 };
   function blockerAhead(carW) {
     for (const sp of spots) {
       if (!(sp.kind in BLOCKERS) || state.done.has(sp.id)) continue;
@@ -999,12 +1014,20 @@
     const msgs = {
       tree: ['You cut the tree up and dragged it clear.', (c) => `A farmer turns up with a tractor and clears it (\u2212\u00a3${c}).`],
       rocks: ['You rolled the rocks off the road.', (c) => `A farmer clears the rocks with his loader (\u2212\u00a3${c}).`],
-      sheep: ['The road\u2019s clear. The sheep look unimpressed.', (c) => `The farmer whistles and the sheep trot off (\u2212\u00a3${c}).`]
+      sheep: ['The road\u2019s clear. The sheep look unimpressed.', (c) => `The farmer whistles and the sheep trot off (\u2212\u00a3${c}).`],
+      gate: ['Gate open. You drive through and close it behind you, like a good visitor.', (c) => `The farmer opens the gate for you (\u2212\u00a3${c}).`],
+      ford: ['You made it across the ford without drowning the engine.', (c) => `A tractor tows you across the ford (\u2212\u00a3${c}).`]
     }[sp.kind];
     startJob(sp.kind, () => { state.done.add(sp.id); (ev[sp.id] || (ev[sp.id] = {})).t = state.time; }, msgs[0], msgs[1]);
   }
   function getUnstuck() {
     startJob('mud', () => { state.stuck = null; state.v = 2.5; }, 'You rocked the car free of the mud.', (c) => `A tractor tows you out of the mud (\u2212\u00a3${c}).`);
+  }
+  function cleanScreen() {
+    startJob('wipe', () => { state.mucky = false; }, 'Windscreen clean. You can see the road again.', (c) => `You pay a lad at the farm shop to wash it (\u2212\u00a3${c}).`);
+  }
+  function jumpStart() {
+    startJob('jump', () => { state.dead = false; }, 'The engine catches. You thank the other driver and pack the leads away.', (c) => `Roadside recovery gets you going (\u2212\u00a3${c}).`);
   }
   function changeTyre() {
     startJob('tyre', () => { state.flat = false; }, 'Spare wheel on. Off you go.', (c) => `Roadside recovery fits a new tyre (\u2212\u00a3${c}).`);
@@ -1035,6 +1058,8 @@
             RoadAudio.bump();
             if (sp.kind === 'sheep') charge(10, 'You clipped a sheep. The farmer wants \u00a310 for the vet.');
             else if (sp.kind === 'tree') charge(15, 'You hit the fallen tree. Fixing the bumper costs \u00a315.');
+            else if (sp.kind === 'gate') charge(20, 'You went into the gate. The farmer wants \u00a320 for a new one.');
+            else if (sp.kind === 'ford') charge(5, 'Splash! You hit the water too fast and stopped dead.');
             else charge(15, 'You hit a rock. Fixing the bumper costs \u00a315.');
           }
           state.v = 0;
@@ -1057,6 +1082,26 @@
             state.cruise = false;
             RoadAudio.bump();
             toast('Bang. Something sharp on the road: you\u2019ve got a puncture.');
+          }
+        }
+      } else if (sp.kind === 'tractor') {
+        if (e.t < 0 && x > carW && x - carW < 700) e.t = state.time;   // tractor comes the other way
+        if (carW > x - 40) {
+          state.done.add(sp.id);
+          if (state.v > 2) {
+            state.mucky = true;
+            state.cruise = false;
+            RoadAudio.bump();
+            toast('A tractor roars past and sprays mud all over your windscreen. You can hardly see.');
+          }
+        }
+      } else if (sp.kind === 'battery') {
+        if (carW > x) {
+          state.done.add(sp.id);
+          if (!state.dead) {
+            state.dead = true;
+            state.cruise = false;
+            toast('The engine coughs, splutters and dies. The battery’s flat.');
           }
         }
       } else if (sp.kind === 'cash') {
@@ -1252,6 +1297,70 @@
         const a = 0.35 + 0.35 * Math.sin(state.time * 6 + sp.id);
         ctx.fillStyle = `rgba(220,232,236,${a})`;
         for (let i = 0; i < 7; i++) ctx.fillRect(x0 + (hash2(i, sp.id) - 0.5) * 30, base + (hash2(i, sp.id + 1) - 0.5) * 4, 2.5, 1.5);
+      } else if (sp.kind === 'gate' && (!gone || (e.t >= 0 && since < 1.2))) {
+        // a five-bar farm gate across the road, swinging open once you've done the job
+        const k = gone ? smooth(0, 1.2, since) : 0;
+        const gx = x0 - 6, base = roadY(sp.m * PXM) + 8;
+        const post = rgb(shade(hex('#4a3a2c'))), bar = rgb(shade(hex('#b9ad94')));
+        ctx.fillStyle = post;
+        ctx.fillRect(gx - 4, base - 46, 7, 50);
+        ctx.fillRect(gx + 64, base - 46, 7, 50);
+        ctx.save();
+        ctx.translate(gx + 2, base - 6);
+        ctx.scale(Math.cos(k * 1.4), 1);
+        ctx.fillStyle = bar;
+        for (let i = 0; i < 5; i++) ctx.fillRect(0, -36 + i * 8, 62, 3.2);
+        ctx.fillRect(0, -36, 3.5, 36);
+        ctx.fillRect(58, -36, 3.5, 36);
+        ctx.save(); ctx.translate(2, -2); ctx.rotate(-0.5); ctx.fillRect(0, -1.6, 68, 3.2); ctx.restore();
+        ctx.restore();
+      } else if (sp.kind === 'ford' && (!gone || (e.t >= 0 && since < 3))) {
+        // brown flood water lying across the dip in the road
+        const k = gone ? smooth(0, 3, since) : 0;
+        const base = roadY(sp.m * PXM) + 7;
+        ctx.globalAlpha = 1 - k * 0.8;
+        ctx.fillStyle = rgb(shade(mix(hex('#6b6450'), hex('#a9b8bc'), 0.5)));
+        ctx.beginPath();
+        ctx.ellipse(x0 + 20, base + 1, 150, 12, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = rgb(shade(hex('#dfe6e4')), 0.25);
+        ctx.beginPath();
+        ctx.ellipse(x0, base - 3, 110, 3, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = rgb(shade(hex('#c9d2d0')), 0.5);
+        ctx.lineWidth = 1.2;
+        ctx.beginPath();
+        for (let i = 0; i < 5; i++) {
+          const wx = x0 - 70 + i * 40 + Math.sin(state.time * 1.5 + i) * 6;
+          ctx.moveTo(wx, base - 2 + (i % 2) * 3); ctx.lineTo(wx + 18, base - 2 + (i % 2) * 3);
+        }
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+        if (!gone) {
+          // depth post
+          ctx.fillStyle = rgb(shade(hex('#d9d6cc')));
+          ctx.fillRect(x0 - 110, base - 34, 4, 34);
+          ctx.fillStyle = rgb(shade(hex('#b5462f')));
+          for (let i = 0; i < 3; i++) ctx.fillRect(x0 - 110, base - 30 + i * 10, 4, 4);
+        }
+      } else if (sp.kind === 'tractor' && e.t >= 0 && since < 6) {
+        // a tractor coming the other way, flinging mud off its back wheels
+        const tx = x0 + 300 - since * 140;
+        const base = roadY(sp.m * PXM + 300 - since * 140) + 2;
+        const body = rgb(shade(hex('#5d7a3a'))), dark = rgb(shade(hex('#1d1e1f')));
+        ctx.fillStyle = body;
+        ctx.fillRect(tx - 34, base - 30, 40, 16);
+        ctx.fillRect(tx - 4, base - 52, 26, 36);
+        ctx.fillStyle = rgb(shade(hex('#9fb0b8')), 0.6);
+        ctx.fillRect(tx, base - 48, 18, 14);
+        ctx.fillStyle = dark;
+        ctx.beginPath(); ctx.arc(tx + 10, base - 14, 15, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath(); ctx.arc(tx - 26, base - 9, 9, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = rgb(shade(hex('#4a3826')));
+        for (let i = 0; i < 5; i++) {
+          const a = state.time * 9 + i * 1.3;
+          ctx.fillRect(tx + 24 + (a % 3) * 10, base - 20 - ((a * 7) % 18), 3, 3);
+        }
       } else if (sp.kind === 'deer' && e.t >= 0 && since < 1.5) {
         const k = since / 1.5;
         const x = x0 - 30 + k * 160;
@@ -1715,6 +1824,20 @@
       state.flash = Math.max(0, state.flash - dt * 2.6);
     }
 
+    // mud sprayed over the windscreen
+    if (state.mucky) {
+      ctx.fillStyle = 'rgba(74,56,38,0.5)';
+      ctx.fillRect(0, -yOff, W, H + yOff);
+      ctx.fillStyle = 'rgba(64,48,32,0.45)';
+      ctx.beginPath();
+      for (let i = 0; i < 90; i++) {
+        const mx = hash2(i, 91) * W, my = -yOff + hash2(i, 92) * (H + yOff), r = 10 + hash2(i, 93) * 38;
+        ctx.moveTo(mx + r, my);
+        ctx.ellipse(mx, my, r, r * (0.5 + hash2(i, 94) * 0.5), hash2(i, 95) * 3, 0, Math.PI * 2);
+      }
+      ctx.fill();
+    }
+
     // vignette and film grain
     ctx.fillStyle = vignette;
     ctx.fillRect(0, -yOff, W, H + yOff);
@@ -1822,7 +1945,7 @@
       const d = (sp.m * PXM - info.carW);
       if (d < -90) continue;
       if (d > 520) break;
-      if (!state.done.has(sp.id) && sp.kind !== 'cash' && sp.kind !== 'deer' && sp.kind !== 'glass') { ahead = { sp, d }; break; }
+      if (!state.done.has(sp.id) && sp.kind !== 'cash' && sp.kind !== 'deer' && sp.kind !== 'glass' && sp.kind !== 'battery') { ahead = { sp, d }; break; }
       if (sp.kind === 'view' && state.done.has(sp.id)) continue;
     }
 
@@ -1837,6 +1960,14 @@
       msg = `Flat tyre. ${key('E', 'Change tyre')} to fit the spare.`;
       action = { label: 'Change tyre', run: changeTyre };
     } else if (state.flat) msg = 'Flat tyre! Stop to change it.';
+    else if (state.dead && state.v < 0.5) {
+      msg = `The battery’s flat. A passing driver has jump leads. ${key('E', 'Jump start')} to get going.`;
+      action = { label: 'Jump start', run: jumpStart };
+    } else if (state.dead) msg = 'The engine’s died. Coast to a stop.';
+    else if (state.mucky && state.v < 0.5) {
+      msg = `Mud all over the windscreen. ${key('E', 'Clean screen')} to wipe it off.`;
+      action = { label: 'Clean screen', run: cleanScreen };
+    } else if (state.mucky) msg = 'You can hardly see through the mud. Stop and clean the windscreen.';
     else if (state.fuel <= 0 && !fullCan) msg = 'Out of fuel…';
     else if (state.fuel <= 0 && state.v > 0.5) msg = 'Out of fuel! Coast to a stop, then use your jerry can.';
     else if (state.fuel <= 0) {
@@ -1845,8 +1976,10 @@
     }
     else if (blocker && state.v < 0.5) {
       const what = { sheep: 'Sheep are blocking the road', tree: 'A fallen tree is blocking the road', rocks: 'Rocks have fallen onto the road' }[blocker.kind];
-      msg = `${what}. ${key('E', 'Clear road')} to get out and deal with it.`;
-      action = { label: 'Clear road', run: () => clearBlocker(blocker) };
+      msg = blocker.kind === 'gate' ? `A farm gate is shut across the road. ${key('E', 'Open gate')} to get out and open it.`
+        : blocker.kind === 'ford' ? `The river’s flooded over the road. ${key('E', 'Cross ford')} to edge across.`
+        : `${what}. ${key('E', 'Clear road')} to get out and deal with it.`;
+      action = { label: blocker.kind === 'gate' ? 'Open gate' : blocker.kind === 'ford' ? 'Cross ford' : 'Clear road', run: () => clearBlocker(blocker) };
     } else if (atSt && stInfo.closed) msg = 'This fuel station is closed. Hope you’ve got enough to reach the next one.';
     else if (atSt && state.v < 0.5) {
       if (state.fuel < 92) {
@@ -1866,6 +1999,9 @@
     } else if (ahead && ahead.sp.kind === 'sheep') msg = 'Sheep on the road ahead. Slow down and stop.';
     else if (ahead && ahead.sp.kind === 'tree') msg = 'A fallen tree is blocking the road ahead. Slow down and stop.';
     else if (ahead && ahead.sp.kind === 'rocks') msg = 'Rocks on the road ahead. Slow down and stop.';
+    else if (ahead && ahead.sp.kind === 'gate') msg = 'There’s a gate across the road ahead. Slow down and stop.';
+    else if (ahead && ahead.sp.kind === 'ford') msg = 'Water across the road ahead. Slow down and stop.';
+    else if (ahead && ahead.sp.kind === 'tractor') msg = 'A tractor’s coming the other way…';
     else if (ahead && ahead.sp.kind === 'mud') msg = 'The road ahead looks very muddy…';
     else if (ahead && ahead.sp.kind === 'view') msg = touch ? 'Viewpoint. Open the car screen and tap Photo.' : 'Viewpoint. Press P (or Photo on the car screen) to take a postcard.';
     else if (leaving) msg = `Stop to let ${leaving.name} out at ${placeName(leaving.dest)}.`;
@@ -2063,7 +2199,7 @@
     if (state.started && !state.paused && !state.over && !busy) {
       readGamepad();
       const goNow = input.go || pad.go, brakeNow = input.brake || pad.brake;
-      const canDrive = state.fuel > 0;
+      const canDrive = state.fuel > 0 && !state.dead;
       if (goNow && canDrive) {
         throttle = 1;
         state.cruise = false;
@@ -2074,6 +2210,7 @@
       else if (state.cruise && canDrive) state.v += clamp(state.cruiseV - state.v, -2, 2) * dt;
       if (brakeNow) state.v -= 11 * dt;
       if (state.flat) state.v = Math.min(state.v, 4);
+      if (state.mucky) state.v = Math.min(state.v, 7);   // you can barely see
       if (state.stuck != null) {
         state.v = 0;
         if (throttle && Math.random() < dt * 30) {
@@ -2142,7 +2279,7 @@
     saveTimer = 300;
     LR.save(LR.KEYS.journey, {
       cam: state.cam, trip: state.trip, tod: state.tod, fuel: state.fuel, seed: state.seed, money: state.money, cans: state.cans,
-      passengers: state.passengers, seats: state.seats, stuck: state.stuck, flat: state.flat,
+      passengers: state.passengers, seats: state.seats, stuck: state.stuck, flat: state.flat, dead: state.dead, mucky: state.mucky,
       done: [...state.done].slice(-200), carried: state.carried, earned: state.earned
     });
     LR.save(LR.KEYS.stats, stats);
@@ -2608,6 +2745,8 @@
     state.seats = 1;
     state.stuck = null;
     state.flat = false;
+    state.dead = false;
+    state.mucky = false;
     state.done = new Set();
     state.carried = 0;
     state.earned = 0;

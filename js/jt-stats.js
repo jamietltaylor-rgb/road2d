@@ -838,7 +838,7 @@
       var fbSites = siteChecks(cfg.feedback.sites);
 
       box.appendChild(h('div', { class: 'jts-sub', text: 'Announcement banner' }));
-      box.appendChild(h('p', { class: 'jts-note', text: 'A short message shown at the top of the sites you tick. Visitors can close it. Leave the text empty to turn it off.' }));
+      box.appendChild(h('p', { class: 'jts-note', text: 'A short message shown at the top of the sites you tick, every time someone opens the site. Visitors can close it for that visit. Leave the text empty to turn it off.' }));
       var bText = h('textarea', { class: 'jts-ta', style: 'min-height:64px', maxlength: '300', placeholder: 'e.g. New: you can now print your packing list!', 'aria-label': 'Banner text' }); bText.value = cfg.banner.text;
       var bStyle = h('select', { class: 'jts-in', 'aria-label': 'Banner style', style: 'margin-top:8px' }, [h('option', { value: 'info', text: 'Blue (news)' }), h('option', { value: 'warning', text: 'Orange (heads-up)' })]);
       bStyle.value = cfg.banner.style;
@@ -865,7 +865,11 @@
           feedback: { sites: fbSites.get() }
         } }).then(function (r) {
           save.disabled = false;
-          if (r.status === 200) msg.textContent = 'Saved. Visitors see the change within a minute or two.';
+          if (r.status === 200) {
+            msg.textContent = 'Saved. Visitors see the change within a minute or two. On this device it shows as soon as you close this panel.';
+            closedNowReset();
+            try { window.__jtRefreshConfig(); } catch (e) {}
+          }
           else { msg.className = 'jts-err'; msg.textContent = 'Could not save. Try again.'; }
         }).catch(function (e) { save.disabled = false; if (!e || e.message !== 'auth') { msg.className = 'jts-err'; msg.textContent = 'Could not reach the counter.'; } });
       });
@@ -1019,7 +1023,8 @@
   window.jtFeedback = openFeedback;
 
   /* ------------------------------ banner, maintenance screen, feedback link */
-  var bannerEl = null, maintEl = null, ownerEl = null, lastConfig = 0;
+  var bannerEl = null, maintEl = null, ownerEl = null, lastConfig = 0, closedNow = {};
+  function closedNowReset() { closedNow = {}; }
   function dropEl(el) { if (el && el.parentNode) el.parentNode.removeChild(el); return null; }
 
   function applyConfig(c) {
@@ -1033,11 +1038,18 @@
     } else if (!c.feedback && fbStyle) dropEl(fbStyle);
 
     if (bannerEl && (!c.banner || bannerEl.getAttribute('data-id') !== c.banner.id)) bannerEl = dropEl(bannerEl);
-    if (c.banner && !bannerEl && !get('jt_banner_' + c.banner.id)) {
+    // Closing the banner hides it for the rest of that visit; it shows again next visit. On the owner's own
+    // device it comes back on every page load, so you can always see what visitors see.
+    var isOwner = !!get('jt_owner');
+    if (c.banner && !bannerEl && !closedNow[c.banner.id] && (isOwner || !get('jt_banner_' + c.banner.id, true))) {
       var id = c.banner.id;
       bannerEl = h('div', { class: 'jts-banner ' + (c.banner.style === 'warning' ? 'warning' : ''), role: 'status', 'data-id': id }, [
         h('span', { text: c.banner.text }),
-        h('button', { type: 'button', 'aria-label': 'Close message', text: '✕', onclick: function () { set('jt_banner_' + id, '1'); bannerEl = dropEl(bannerEl); } })
+        h('button', { type: 'button', 'aria-label': 'Close message', text: '✕', onclick: function () {
+          closedNow[id] = true;
+          if (!get('jt_owner')) set('jt_banner_' + id, '1', true);
+          bannerEl = dropEl(bannerEl);
+        } })
       ]);
       document.body.appendChild(bannerEl);
     }
@@ -1064,7 +1076,8 @@
 
   function fetchConfig() {
     try {
-      fetch(API + 'config', { credentials: 'omit' }).then(function (r) { return r.ok ? r.json() : null; })
+      // the owner's device skips the one-minute cache so changes show straight away
+      fetch(API + 'config', get('jt_owner') ? { credentials: 'omit', cache: 'no-store' } : { credentials: 'omit' }).then(function (r) { return r.ok ? r.json() : null; })
         .then(function (c) { if (c && document.body) applyConfig(c); }).catch(noop);
     } catch (e) {}
   }
@@ -1072,6 +1085,7 @@
     if (document.visibilityState === 'visible' && Date.now() - lastConfig > 120000) fetchConfig();
   });
 
+  window.__jtRefreshConfig = fetchConfig;
   function start() { track(); fetchConfig(); }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start);
   else start();

@@ -237,4 +237,12 @@ For testing, add `?t=0.8` to the address to jump to dusk, or `?km=5` to jump 5 k
 
 `worker.js` also keeps a small anonymous visit counter for Jamie's four sites (Revise, Shared List, PackSmart and Lost Roads). Each site loads one script (`js/jt-stats.js`, called `stats.js` / `jt-stats.js` in the other repos) that reports one visit with a random id kept on the visitor's own device. No names, email addresses or IP numbers are stored. The numbers live in the Cloudflare D1 database `jamietaylor-stats` (binding `STATS` in `wrangler.jsonc`).
 
-To see them, tap 5 times quickly in the very bottom-right corner of any of the four sites (there is no button) and type the admin password. The password box also lets you change the password and switch off counting on your own device.
+To see them, tap 5 times quickly in the very bottom-right corner of any of the four sites (there is no button) and type the admin password. The admin panel has these tabs: Overview (visitors, come-back rate, installs), Sources (where visitors came from, plus a tagged-link maker, e.g. `?from=tt-revise`), Audience (countries, devices), Pages, Times (busiest hours and days, UK time), Features (what people used in each app), Accounts (totals, plus Lost Roads player tools: rename, remove a score, delete, blocked words), Errors (real visitors' JavaScript errors), Feedback (notes visitors send) and Tools (announcement banner, maintenance switch, feedback link on/off, change the admin password, switch off counting on your own device).
+
+How it fits together:
+- `stats.js` (this repo) holds all the counter code; `worker.js` imports it. Both are in `.assetsignore`, so neither is served publicly.
+- Extra D1 tables (created by hand in D1, see the top of `stats.js` for what they hold): `stats_dim`, `stats_installed`, `stats_events`, `stats_errors`, `stats_feedback`, `stats_config`, `stats_links`.
+- Each app calls `window.jtEvent('name')` for feature counters. The allowed names per site are listed in `EVENTS` in `stats.js`; anything else is ignored.
+- A "Send feedback" link in an app is any element with the class `jt-fb-link` (hidden until the script says feedback is on) that calls `window.jtFeedback()`.
+- Admin actions for Lost Roads players are `admin_*` actions in the Durable Object. They are only reachable through the password-protected stats code: the Worker blocks `/api/admin*` and strips the `x-jt-admin` header from public requests.
+- Account totals for Revise, Shared List and PackSmart come from a counts-only SQL function `admin_counts` in each app's own database (the panel's Accounts tab shows the SQL to paste). Its secret token is stored only in the `stats_links` D1 table, never in a repo.

@@ -1,5 +1,6 @@
-   wrangler.jsonc
-   README.md
-   .git
-   .assetsignore
-   worker.js
+wrangler.jsonc
+README.md
+.git
+.assetsignore
+worker.js
+stats.js

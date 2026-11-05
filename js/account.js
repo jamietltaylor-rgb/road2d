@@ -26,6 +26,7 @@ window.Account = (() => {
     bad_username: 'Usernames are 3 to 20 letters, numbers, - or _.',
     short_password: 'Passwords need at least 8 characters.',
     username_taken: 'That username is taken. Try another one.',
+    name_not_allowed: 'That username isn’t allowed. Please pick a different one.',
     wrong_login: 'That username and password don’t match.',
     too_many_tries: 'Too many wrong passwords. Wait 10 minutes and try again.',
     too_many_cards: 'Your postcard album online is full (200 postcards).',

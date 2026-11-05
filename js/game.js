@@ -1,6 +1,9 @@
 (() => {
   'use strict';
 
+  // Anonymous feature counters for the owner's admin panel (js/jt-stats.js). Counting must never break the game.
+  const track = (name, value) => { try { if (window.jtEvent) window.jtEvent(name, value); } catch (e) { /* ignore */ } };
+
   // ---------------------------------------------------------------------------
   // Setup
   // ---------------------------------------------------------------------------
@@ -785,6 +788,7 @@
     const pay = missed ? Math.ceil(fare / 2) : fare + tip;
     state.passengers = state.passengers.filter((x) => x !== p);
     state.carried++;
+    track('hitchhiker_dropped');
     if (missed) caption(`${p.name}: Ah, that was my stop back there. Never mind, I’ll walk. Here’s something for the petrol.`);
     else caption(`${p.name}: ${THANKS[Math.floor(Math.random() * THANKS.length)]} Here’s £${pay}${tip ? ', and a bit extra' : ''}.`);
     earn(pay, `+£${pay} from ${p.name}`);
@@ -967,6 +971,7 @@
     let filled = 0;
     state.cans = state.cans.map((c) => { if (c || filled >= afford) return c; filled++; return true; });
     state.money -= filled * CAN_FILL_PRICE;
+    track('fuel_filled');
     RoadAudio.glug();
     toast(`Filled ${filled === 1 ? 'a jerry can' : `${filled} jerry cans`} (\u2212\u00a3${filled * CAN_FILL_PRICE}).`);
     persist(true);
@@ -983,6 +988,7 @@
       data: { fuel: state.fuel },
       onWin: (r) => {
         state.fuel = r.fuel;
+        track('fuel_filled');
         const empties = state.cans.filter((c) => !c).length;
         const afford = Math.min(empties, Math.floor(state.money / CAN_FILL_PRICE));
         let filled = 0;
@@ -2528,6 +2534,8 @@
   ui.soundAll.addEventListener('change', () => { settings.muted = !ui.soundAll.checked; RoadAudio.start(); RoadAudio.setMuted(settings.muted); saveSettings(); syncButtons(); });
   ui.settingsBtn.addEventListener('click', (e) => { e.currentTarget.blur(); openSettings(); });
   ui.closeSettings.addEventListener('click', closeSettings);
+  const feedbackBtn = document.getElementById('feedbackBtn');
+  if (feedbackBtn) feedbackBtn.addEventListener('click', () => { if (window.jtFeedback) window.jtFeedback(); });
   ui.settings.addEventListener('pointerdown', (e) => { if (e.target === ui.settings) closeSettings(); });
   ui.dockHide.addEventListener('click', () => {
     const tucked = ui.dock.classList.toggle('tucked');
@@ -2734,6 +2742,7 @@
     const km = (state.cam + carX) / PXM / 1000;
     stats.best = Math.max(stats.best || 0, km);
     stats.journeys = (stats.journeys || 0) + 1;
+    track('game_over', km);
     const place = placeName(Math.floor((state.cam + carX) / PXM / PLACE_EVERY));
     ui.overText.textContent = `You ran dry near ${place}, with no fuel left in the tank and nothing in the jerry cans.`;
     ui.overStats.innerHTML = '';

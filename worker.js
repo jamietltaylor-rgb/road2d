@@ -148,9 +148,141 @@ export class LostRoadsDB extends DurableObject {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Visit counter for all four of Jamie's sites (Revise, Shared List, PackSmart,
+// Lost Roads). Every site's small script (jt-stats.js) reports to /api/stats/hit
+// with a random anonymous id kept on the visitor's own device. No names, no
+// addresses and no IP numbers are stored. The numbers live in the D1 database
+// bound as STATS, and the hidden admin panel reads them with a password.
+// ---------------------------------------------------------------------------
+const STATS_SITES = {
+  'revision.jamietaylor.org': 'revise',
+  'sharedlist.jamietaylor.org': 'sharedlist',
+  'jamietaylor.org': 'sharedlist',
+  'packsmart.jamietaylor.org': 'packsmart',
+  'roads2d.jamietaylor.org': 'roads2d'
+};
+const STATS_IDS = ['revise', 'sharedlist', 'packsmart', 'roads2d'];
+const BOT = /bot|crawl|spider|slurp|headless|lighthouse|preview|monitor|uptime|curl|wget|python|node-fetch|axios|go-http|java\//i;
+
+const londonDay = (date = new Date()) => date.toLocaleDateString('en-CA', { timeZone: 'Europe/London' });
+const addDays = (day, n) => new Date(Date.parse(day + 'T00:00:00Z') + n * 864e5).toISOString().slice(0, 10);
+const sha256Hex = async (text) => hex(await crypto.subtle.digest('SHA-256', enc.encode(text)));
+const sameText = (a, b) => { let d = a.length ^ b.length; for (let i = 0; i < Math.max(a.length, b.length); i++) d |= (a.charCodeAt(i) || 0) ^ (b.charCodeAt(i) || 0); return d === 0; };
+
+function statsJson(body, status, cors) {
+  return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json', 'cache-control': 'no-store', ...cors } });
+}
+
+async function statsSummary(db) {
+  const today = londonDay();
+  const d7 = addDays(today, -6);
+  const d30 = addDays(today, -29);
+  const d14 = addDays(today, -13);
+  const rows = async (sql, ...args) => (await db.prepare(sql).bind(...args).all()).results;
+  const [all, wToday, w7, w30, daily, back, new7, new30] = await Promise.all([
+    rows('SELECT site, SUM(n) AS visits, COUNT(DISTINCT vid) AS people, MIN(day) AS since FROM stats_days GROUP BY site'),
+    rows('SELECT site, SUM(n) AS visits, COUNT(DISTINCT vid) AS people FROM stats_days WHERE day >= ? GROUP BY site', today),
+    rows('SELECT site, SUM(n) AS visits, COUNT(DISTINCT vid) AS people FROM stats_days WHERE day >= ? GROUP BY site', d7),
+    rows('SELECT site, SUM(n) AS visits, COUNT(DISTINCT vid) AS people FROM stats_days WHERE day >= ? GROUP BY site', d30),
+    rows('SELECT site, day, SUM(n) AS visits, COUNT(*) AS people FROM stats_days WHERE day >= ? GROUP BY site, day', d14),
+    rows('SELECT site, COUNT(*) AS c FROM (SELECT site, vid FROM stats_days GROUP BY site, vid HAVING COUNT(DISTINCT day) > 1) GROUP BY site'),
+    rows('SELECT site, COUNT(*) AS c FROM stats_first WHERE first_day >= ? GROUP BY site', d7),
+    rows('SELECT site, COUNT(*) AS c FROM stats_first WHERE first_day >= ? GROUP BY site', d30)
+  ]);
+  const by = (list, site) => list.find((r) => r.site === site) || {};
+  const win = (list, site) => ({ visits: by(list, site).visits || 0, people: by(list, site).people || 0 });
+  const sites = STATS_IDS.map((id) => {
+    const series = [];
+    for (let i = 13; i >= 0; i--) {
+      const day = addDays(today, -i);
+      const r = daily.find((x) => x.site === id && x.day === day);
+      series.push({ day, visits: r ? r.visits : 0, people: r ? r.people : 0 });
+    }
+    return {
+      id,
+      since: by(all, id).since || null,
+      visits: by(all, id).visits || 0,
+      people: by(all, id).people || 0,
+      cameBack: by(back, id).c || 0,
+      today: win(wToday, id),
+      days7: win(w7, id),
+      days30: win(w30, id),
+      new7: by(new7, id).c || 0,
+      new30: by(new30, id).c || 0,
+      daily: series
+    };
+  });
+  return { today, sites };
+}
+
+async function handleStats(request, env) {
+  const url = new URL(request.url);
+  const action = url.pathname.replace(/^\/api\/stats\//, '');
+  let originHost = '';
+  try { originHost = new URL(request.headers.get('origin') || '').hostname; } catch { /* no origin */ }
+  const host = originHost || url.hostname; // no Origin header means a same-site request
+  const site = STATS_SITES[host];
+  const cors = originHost && site
+    ? { 'access-control-allow-origin': request.headers.get('origin'), 'vary': 'Origin', 'access-control-allow-methods': 'POST, OPTIONS', 'access-control-allow-headers': 'content-type' }
+    : {};
+  if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: { ...cors, 'access-control-max-age': '86400' } });
+  if (request.method !== 'POST') return statsJson({ error: 'method' }, 405, cors);
+  if (!site) return statsJson({ error: 'origin' }, 403, {});
+  if (!env.STATS) return statsJson({ error: 'not_set_up' }, 503, cors);
+
+  let body = {};
+  try { body = JSON.parse(await request.text()); } catch { /* ignore */ }
+  if (!body || typeof body !== 'object') body = {};
+
+  try {
+    if (action === 'hit') {
+      const ua = request.headers.get('user-agent') || '';
+      const vid = String(body.vid || '');
+      if (!ua || BOT.test(ua) || !/^[a-z0-9]{12,40}$/.test(vid)) return new Response(null, { status: 204, headers: cors });
+      const day = londonDay();
+      await env.STATS.batch([
+        env.STATS.prepare('INSERT INTO stats_days (site, day, vid, n) VALUES (?1, ?2, ?3, 1) ON CONFLICT (site, day, vid) DO UPDATE SET n = n + 1').bind(site, day, vid),
+        env.STATS.prepare('INSERT OR IGNORE INTO stats_first (site, vid, first_day) VALUES (?1, ?2, ?3)').bind(site, vid, day)
+      ]);
+      return new Response(null, { status: 204, headers: cors });
+    }
+
+    if (action !== 'summary' && action !== 'password') return statsJson({ error: 'unknown_action' }, 404, cors);
+
+    // Everything below needs the admin password. Wrong guesses are slowed down per visitor.
+    const key = await sha256Hex('ip:' + (request.headers.get('cf-connecting-ip') || '?'));
+    const now = Date.now();
+    const tries = await env.STATS.prepare('SELECT fails, at FROM stats_tries WHERE k = ?').bind(key).first();
+    const recent = tries && now - tries.at < 15 * 60000;
+    if (recent && tries.fails >= 8) return statsJson({ error: 'locked' }, 429, cors);
+    const admin = await env.STATS.prepare('SELECT pass FROM stats_admin WHERE id = 1').first();
+    let ok = false;
+    if (admin && typeof body.password === 'string' && body.password.length <= 200) {
+      const [salt] = admin.pass.split(':');
+      ok = sameText(await hashPassword(body.password, salt), admin.pass);
+    }
+    if (!ok) {
+      await env.STATS.prepare('INSERT INTO stats_tries (k, fails, at) VALUES (?1, 1, ?2) ON CONFLICT (k) DO UPDATE SET fails = CASE WHEN ?2 - at < 900000 THEN fails + 1 ELSE 1 END, at = ?2').bind(key, now).run();
+      return statsJson({ error: 'wrong_password' }, 401, cors);
+    }
+    if (tries) await env.STATS.prepare('DELETE FROM stats_tries WHERE k = ?').bind(key).run();
+
+    if (action === 'summary') return statsJson(await statsSummary(env.STATS), 200, cors);
+
+    const next = String(body.newPassword || '');
+    if (next.length < 8 || next.length > 100) return statsJson({ error: 'short_password' }, 400, cors);
+    await env.STATS.prepare('UPDATE stats_admin SET pass = ? WHERE id = 1').bind(await hashPassword(next)).run();
+    return statsJson({ ok: true }, 200, cors);
+  } catch (e) {
+    return statsJson({ error: 'server_error' }, 500, cors);
+  }
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
+    if (url.pathname.startsWith('/api/stats/')) return handleStats(request, env);
     if (url.pathname.startsWith('/api/')) {
       const res = await env.DB.get(env.DB.idFromName('lost-roads')).fetch(request);
       const out = new Response(res.body, res);

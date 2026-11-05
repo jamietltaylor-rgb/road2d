@@ -232,3 +232,9 @@ The `_headers` file and the `?v=` numbers on the script tags make browsers fetch
 - **Rain sound** (Settings, Rain): Gentle patter, Heavy downpour, Rain on the roof, or no rain sound, plus its own volume slider. Choosing one plays a short preview.
 
 For testing, add `?t=0.8` to the address to jump to dusk, or `?km=5` to jump 5 km (about 3 miles) down the road.
+
+## Visit counter for all four sites
+
+`worker.js` also keeps a small anonymous visit counter for Jamie's four sites (Revise, Shared List, PackSmart and Lost Roads). Each site loads one script (`js/jt-stats.js`, called `stats.js` / `jt-stats.js` in the other repos) that reports one visit with a random id kept on the visitor's own device. No names, email addresses or IP numbers are stored. The numbers live in the Cloudflare D1 database `jamietaylor-stats` (binding `STATS` in `wrangler.jsonc`).
+
+To see them, tap 5 times quickly in the very bottom-right corner of any of the four sites (there is no button) and type the admin password. The password box also lets you change the password and switch off counting on your own device.

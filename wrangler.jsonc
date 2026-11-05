@@ -14,5 +14,9 @@
   "durable_objects": {
     "bindings": [{ "name": "DB", "class_name": "LostRoadsDB" }]
   },
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["LostRoadsDB"] }]
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["LostRoadsDB"] }],
+  // The visit counter for all four sites (see "Visit counter" in worker.js).
+  "d1_databases": [
+    { "binding": "STATS", "database_name": "jamietaylor-stats", "database_id": "8f2f28a8-be50-422a-ada0-67f8318e2604" }
+  ]
 }

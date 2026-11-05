@@ -241,8 +241,9 @@ To see them, tap 5 times quickly in the very bottom-right corner of any of the f
 
 How it fits together:
 - `stats.js` (this repo) holds all the counter code; `worker.js` imports it. Both are in `.assetsignore`, so neither is served publicly.
-- Extra D1 tables (created by hand in D1, see the top of `stats.js` for what they hold): `stats_dim`, `stats_installed`, `stats_events`, `stats_errors`, `stats_feedback`, `stats_config`, `stats_links`.
+- Extra D1 tables (created by hand in D1, see the top of `stats.js` for what they hold): `stats_dim`, `stats_installed`, `stats_events`, `stats_errors`, `stats_feedback`, `stats_config`, `stats_links`, `stats_accts` (`site, h, first_day, last_day`: a scrambled account id per signed-in person, never the real id).
 - Each app calls `window.jtEvent('name')` for feature counters. The allowed names per site are listed in `EVENTS` in `stats.js`; anything else is ignored.
 - A "Send feedback" link in an app is any element with the class `jt-fb-link` (hidden until the script says feedback is on) that calls `window.jtFeedback()`.
 - Admin actions for Lost Roads players are `admin_*` actions in the Durable Object. They are only reachable through the password-protected stats code: the Worker blocks `/api/admin*` and strips the `x-jt-admin` header from public requests.
-- Account totals for Revise, Shared List and PackSmart come from a counts-only SQL function `admin_counts` in each app's own database (the panel's Accounts tab shows the SQL to paste). Its secret token is stored only in the `stats_links` D1 table, never in a repo.
+- The Accounts tab always shows "signed-in people" for Revise, Shared List and PackSmart with no setup: `jt-stats.js` notices a Supabase sign-in in the browser and reports the account id to `/api/stats/acct`, which keeps only a scrambled copy. It counts people as they open the app signed in, so it grows from the day it was installed.
+- Exact account totals (plus lists, items and saves) are optional and come from a counts-only SQL function `admin_counts` in each app's own database (the panel's Accounts tab shows the SQL to paste). Its secret token is stored only in the `stats_links` D1 table, never in a repo.

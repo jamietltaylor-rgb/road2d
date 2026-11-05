@@ -175,6 +175,17 @@ async function recordEvent(db, site, body, request) {
   await db.prepare('INSERT INTO stats_events (site, day, name, n, v) VALUES (?1, ?2, ?3, 1, ?4) ON CONFLICT (site, day, name) DO UPDATE SET n = n + 1, v = v + ?4').bind(site, londonNow().day, name, v).run();
 }
 
+// A signed-in person was seen on this site. Only a scrambled version of their account id is kept.
+async function recordAcct(db, site, body, request) {
+  const ua = request.headers.get('user-agent') || '';
+  const id = String(body.acct || '');
+  const vid = String(body.vid || '');
+  if (!ua || BOT.test(ua) || !/^[a-z0-9]{12,40}$/.test(vid) || !/^[0-9a-fA-F-]{36}$/.test(id) || site === 'roads2d') return;
+  const h = (await sha256Hex('acct:' + site + ':' + id.toLowerCase())).slice(0, 24);
+  const day = londonNow().day;
+  await db.prepare('INSERT INTO stats_accts (site, h, first_day, last_day) VALUES (?1, ?2, ?3, ?3) ON CONFLICT (site, h) DO UPDATE SET last_day = ?3').bind(site, h, day).run();
+}
+
 async function recordError(db, site, body, request) {
   const ua = request.headers.get('user-agent') || '';
   const msg = clip(body.msg, 200).trim();
@@ -312,16 +323,25 @@ async function accounts(env) {
   const out = {};
   try { out.roads2d = { ok: true, counts: await lostRoads(env, 'admin_counts') }; } catch { out.roads2d = { ok: false, reason: 'error' }; }
   const links = (await env.STATS.prepare('SELECT site, url, key, token FROM stats_links').all()).results;
+  // Always available, needs no setup: signed-in people the apps have reported themselves
+  const today = londonNow().day;
+  const d7 = addDays(today, -6), d30 = addDays(today, -29);
+  let seenRows = [];
+  try {
+    seenRows = (await env.STATS.prepare('SELECT site, COUNT(*) AS seen, SUM(last_day >= ?1) AS seen7, SUM(last_day >= ?2) AS seen30, MIN(first_day) AS since FROM stats_accts GROUP BY site').bind(d7, d30).all()).results;
+  } catch { /* table not there yet: shown as zero */ }
   await Promise.all(['revise', 'sharedlist', 'packsmart'].map(async (id) => {
+    const s = seenRows.find((x) => x.site === id) || {};
+    const seen = { source: 'seen', counts: { seen: s.seen || 0, seen7: s.seen7 || 0, seen30: s.seen30 || 0 }, since: s.since || null };
     const l = links.find((x) => x.site === id);
-    if (!l) { out[id] = { ok: false, reason: 'not_set_up' }; return; }
+    if (!l) { out[id] = { ok: true, ...seen, exact: 'not_set_up' }; return; }
     try {
       const headers = { apikey: l.key, 'content-type': 'application/json' };
       if (/^eyJ/.test(l.key)) headers.authorization = 'Bearer ' + l.key;
       const res = await fetch(`${l.url}/rest/v1/rpc/admin_counts`, { method: 'POST', headers, body: JSON.stringify({ p_token: l.token }), signal: AbortSignal.timeout(6000) });
-      if (!res.ok) { out[id] = { ok: false, reason: 'not_connected' }; return; }
-      out[id] = { ok: true, counts: await res.json() };
-    } catch { out[id] = { ok: false, reason: 'unreachable' }; }
+      if (!res.ok) { out[id] = { ok: true, ...seen, exact: 'not_connected' }; return; }
+      out[id] = { ok: true, source: 'exact', counts: await res.json(), since: seen.since };
+    } catch { out[id] = { ok: true, ...seen, exact: 'unreachable' }; }
   }));
   return out;
 }
@@ -362,6 +382,7 @@ export async function handleStats(request, env) {
     // Public: things the apps report.
     if (action === 'hit') { await recordHit(db, site, body, request); return quiet(); }
     if (action === 'event') { await recordEvent(db, site, body, request); return quiet(); }
+    if (action === 'acct') { await recordAcct(db, site, body, request); return quiet(); }
     if (action === 'error') { await recordError(db, site, body, request); return quiet(); }
     if (action === 'feedback') {
       const r = await recordFeedback(db, site, body, request);

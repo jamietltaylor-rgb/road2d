@@ -160,6 +160,38 @@
     } catch (e) {}
   };
 
+  // signed-in people: if this device holds a sign-in for the app, tell the counter which account (just an
+  // id, no name or email) so the Accounts tab can count different signed-in people. Sent once per sign-in.
+  var acctSent = '';
+  function signedInId() {
+    try {
+      var ls = window.localStorage;
+      for (var i = 0; i < ls.length; i++) {
+        var k = ls.key(i);
+        if (k !== 'revise-session' && !/^sb-.+-auth-token$/.test(k)) continue;
+        var v = JSON.parse(ls.getItem(k) || 'null');
+        var u = v && (v.user || (v.currentSession && v.currentSession.user));
+        var id = u && u.id;
+        if (typeof id === 'string' && /^[0-9a-fA-F-]{36}$/.test(id)) return id;
+      }
+    } catch (e) {}
+    return '';
+  }
+  function reportAcct() {
+    try {
+      if (skipped() || document.hidden) return;
+      var id = signedInId();
+      if (!id || id === acctSent) return;
+      var vid = getVid();
+      if (!vid) return;
+      acctSent = id;
+      send('acct', { vid: vid, acct: id });
+    } catch (e) {}
+  }
+  setTimeout(reportAcct, 2500);
+  setInterval(reportAcct, 20000);
+  document.addEventListener('visibilitychange', function () { if (!document.hidden) setTimeout(reportAcct, 500); });
+
   // real visitors' errors from this site's own files
   var errorsSent = 0;
   function reportError(msg, src, line) {
@@ -642,10 +674,11 @@
   }
 
   /* ---- Accounts and Lost Roads players */
-  var COUNT_NAMES = { accounts: 'Accounts', active7: 'Signed in, last 7 days', active30: 'Signed in, last 30 days', saves: 'Study sets saved online',
+  var COUNT_NAMES = { seen: 'Signed-in people', seen7: 'Signed in, last 7 days', seen30: 'Signed in, last 30 days',
+    accounts: 'Accounts', active7: 'Signed in, last 7 days', active30: 'Signed in, last 30 days', saves: 'Study sets saved online',
     groups: 'Shared lists', items: 'List items', members: 'People in lists', lists: 'Saved packing lists',
     players: 'Players', withScore: 'With a leaderboard score', postcards: 'Postcards saved', bestKm: 'Furthest drive (km)' };
-  var COUNT_ORDER = ['players', 'accounts', 'active7', 'active30', 'withScore', 'saves', 'groups', 'members', 'items', 'lists', 'postcards', 'bestKm'];
+  var COUNT_ORDER = ['players', 'seen', 'seen7', 'seen30', 'accounts', 'active7', 'active30', 'withScore', 'saves', 'groups', 'members', 'items', 'lists', 'postcards', 'bestKm'];
 
   function accountCard(id, a) {
     var meta = SITES[id];
@@ -653,7 +686,7 @@
     box.style.borderLeftColor = meta.color;
     box.appendChild(h('div', { class: 'jts-top' }, [h('b', { text: meta.icon + ' ' + meta.name })]));
     if (!a || !a.ok) {
-      box.appendChild(h('p', { class: 'jts-line', style: 'margin-top:8px', text: a && a.reason === 'not_set_up' ? 'Not connected yet. See "Connect the other sites" below.' : 'Could not be read right now. Check it has been connected (see below).' }));
+      box.appendChild(h('p', { class: 'jts-line', style: 'margin-top:8px', text: 'Could not be read just now. Press Refresh on Overview and look again in a moment.' }));
       return box;
     }
     var kv = h('div', { class: 'jts-kv' });
@@ -662,6 +695,10 @@
       kv.appendChild(h('div', null, [h('b', { text: n(a.counts[k]) }), h('span', { text: COUNT_NAMES[k] || k })]));
     });
     box.appendChild(kv);
+    if (a.source === 'seen') {
+      box.appendChild(h('p', { class: 'jts-note', text: 'Counted as people open the app signed in' + (a.since ? ', since ' + fmtDay(a.since) : '') +
+        '. Someone who hasn\'t come back since then isn\'t in this number yet.' }));
+    }
     return box;
   }
 
@@ -672,12 +709,12 @@
       SITE_IDS.forEach(function (id) { box.appendChild(accountCard(id, r[id])); });
       box.appendChild(h('p', { class: 'jts-note', text: 'Only totals are shown. Nobody\'s email, name or content is read.' }));
 
-      var pending = SITE_IDS.filter(function (id) { return id !== 'roads2d' && !(r[id] && r[id].ok); });
+      var pending = SITE_IDS.filter(function (id) { return id !== 'roads2d' && !(r[id] && r[id].ok && r[id].source === 'exact'); });
       var play = h('div'); box.appendChild(play);
       var sql = h('div'); box.appendChild(sql);
       if (pending.length) {
-        sql.appendChild(h('div', { class: 'jts-sub', text: 'Connect the other sites' }));
-        sql.appendChild(h('p', { class: 'jts-note', text: 'One-time step: each site\'s database needs a tiny "counts only" function so this page can read totals. It cannot read anyone\'s details.' }));
+        sql.appendChild(h('div', { class: 'jts-sub', text: 'Optional: exact totals' }));
+        sql.appendChild(h('p', { class: 'jts-note', text: 'The numbers above already work with nothing to set up. For the exact total of accounts ever made, plus lists, items and saves, each site\'s database needs a tiny "counts only" function. It cannot read anyone\'s details.' }));
         sql.appendChild(h('button', { class: 'jts-btn alt', type: 'button', text: 'Show the setup steps', onclick: function () { showSetup(sql, pending); } }));
       }
       drawPlayers(play);
@@ -688,7 +725,7 @@
     loading(box);
     call('link_sql', {}, function (r) {
       box.textContent = '';
-      box.appendChild(h('div', { class: 'jts-sub', text: 'Connect the other sites' }));
+      box.appendChild(h('div', { class: 'jts-sub', text: 'Optional: exact totals' }));
       box.appendChild(h('p', { class: 'jts-note', text: 'For each site: open its database\'s SQL editor, paste the box below, and press Run. Then come back here and press Refresh on Overview. It is safe to run twice.' }));
       ids.forEach(function (id) {
         var text = r.sql[id] || '';

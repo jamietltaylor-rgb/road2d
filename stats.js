@@ -1,7 +1,7 @@
 // ---------------------------------------------------------------------------
 // Jamie's visitor counter, error log, feedback box, announcement banner and the
-// data behind the hidden admin panel. It serves all four sites (Revise, Shared
-// List, PackSmart and Lost Roads). Each site loads one small script
+// data behind the hidden admin panel. It serves all five sites (Revise, Shared
+// List, PackSmart, Lost Roads and The Quiet Outside). Each site loads one small script
 // (jt-stats.js) that talks to /api/stats/* here.
 //
 // Privacy: visitors are a random anonymous id kept on their own device. No
@@ -19,16 +19,18 @@ export const SITE_HOSTS = {
   'sharedlist.jamietaylor.org': 'sharedlist',
   'jamietaylor.org': 'sharedlist',
   'packsmart.jamietaylor.org': 'packsmart',
-  'roads2d.jamietaylor.org': 'roads2d'
+  'roads2d.jamietaylor.org': 'roads2d',
+  'survive3d.jamietaylor.org': 'survive3d'
 };
-export const SITE_IDS = ['revise', 'sharedlist', 'packsmart', 'roads2d'];
+export const SITE_IDS = ['revise', 'sharedlist', 'packsmart', 'roads2d', 'survive3d'];
 
 // Feature counters each app may report (anything else is ignored).
 export const EVENTS = {
   revise: ['quiz_started', 'quiz_finished', 'exam_taken', 'exam_added', 'question_added', 'ai_questions', 'ai_marked'],
   sharedlist: ['list_created', 'list_joined', 'item_added', 'meal_list_created'],
   packsmart: ['trip_created', 'item_added', 'list_printed'],
-  roads2d: ['hitchhiker_dropped', 'fuel_filled', 'game_over']
+  roads2d: ['hitchhiker_dropped', 'fuel_filled', 'game_over'],
+  survive3d: ['game_started', 'night_survived', 'caught', 'ending_reached', 'trap_won']
 };
 
 const BOT = /bot|crawl|spider|slurp|headless|lighthouse|preview|monitor|uptime|curl|wget|python|node-fetch|axios|go-http|java\//i;

@@ -1,5 +1,5 @@
 /* Jamie's visitor counter, feedback box, announcement banner and hidden admin panel.
-   The SAME file is used by all four sites (Revise, Shared List, PackSmart, Lost Roads).
+   The SAME file is used by all five sites (Revise, Shared List, PackSmart, Lost Roads, The Quiet Outside).
 
    1. Counting: once per visit it tells the counter (on roads2d.jamietaylor.org) that this site was
       opened, with a random anonymous id kept on the visitor's own device. It also notes where the
@@ -221,9 +221,10 @@
     revise: { name: 'Revise', icon: '📝', color: '#6366f1', host: 'revision.jamietaylor.org' },
     sharedlist: { name: 'Shared List', icon: '🛒', color: '#10b981', host: 'sharedlist.jamietaylor.org' },
     packsmart: { name: 'PackSmart', icon: '🧳', color: '#f97316', host: 'packsmart.jamietaylor.org' },
-    roads2d: { name: 'Lost Roads 2D', icon: '🚗', color: '#ef4444', host: 'roads2d.jamietaylor.org' }
+    roads2d: { name: 'Lost Roads 2D', icon: '🚗', color: '#ef4444', host: 'roads2d.jamietaylor.org' },
+    survive3d: { name: 'The Quiet Outside', icon: '👁️', color: '#64748b', host: 'survive3d.jamietaylor.org', noAccounts: true }
   };
-  var SITE_IDS = ['revise', 'sharedlist', 'packsmart', 'roads2d'];
+  var SITE_IDS = ['revise', 'sharedlist', 'packsmart', 'roads2d', 'survive3d'];
   var FONT = 'system-ui,-apple-system,"Segoe UI",Roboto,sans-serif';
   var CSS =
     '.jts-back{position:fixed;inset:0;z-index:2147483600;background:rgba(10,12,20,.6);display:flex;align-items:center;justify-content:center;padding:16px;font:15px/1.4 ' + FONT + ';-webkit-tap-highlight-color:transparent}' +
@@ -658,7 +659,8 @@
     question_added: 'Questions added', ai_questions: 'AI question sets made', ai_marked: 'Answers marked by AI',
     list_created: 'Shopping lists created', list_joined: 'Lists joined from an invite', item_added: 'Items added', meal_list_created: 'Meal-plan lists made',
     trip_created: 'Trips created', list_printed: 'Packing lists printed',
-    hitchhiker_dropped: 'Hitchhikers dropped off', fuel_filled: 'Fuel top-ups (pump or jerry cans)', game_over: 'Games finished'
+    hitchhiker_dropped: 'Hitchhikers dropped off', fuel_filled: 'Fuel top-ups (pump or jerry cans)', game_over: 'Games finished',
+    game_started: 'New games started', night_survived: 'Nights survived', caught: 'Times caught by a creature', ending_reached: 'Endings reached', trap_won: 'Creatures trapped (rescue ending)'
   };
   function tabFeatures(box) {
     head2(box);
@@ -706,10 +708,10 @@
     loading(box);
     call('accounts', {}, function (r) {
       box.textContent = '';
-      SITE_IDS.forEach(function (id) { box.appendChild(accountCard(id, r[id])); });
+      SITE_IDS.forEach(function (id) { if (!SITES[id].noAccounts) box.appendChild(accountCard(id, r[id])); });
       box.appendChild(h('p', { class: 'jts-note', text: 'Only totals are shown. Nobody\'s email, name or content is read.' }));
 
-      var pending = SITE_IDS.filter(function (id) { return id !== 'roads2d' && !(r[id] && r[id].ok && r[id].source === 'exact'); });
+      var pending = SITE_IDS.filter(function (id) { return id !== 'roads2d' && !SITES[id].noAccounts && !(r[id] && r[id].ok && r[id].source === 'exact'); });
       var play = h('div'); box.appendChild(play);
       var sql = h('div'); box.appendChild(sql);
       if (pending.length) {
@@ -984,7 +986,9 @@
   function inCorner(e) {
     return e.clientX >= window.innerWidth - CORNER && e.clientY >= window.innerHeight - CORNER;
   }
-  window.addEventListener('pointerdown', function (e) {
+  // a site with its own corner panel (The Quiet Outside) sets window.__JT_NO_CORNER__ and opens this one with window.jtAdmin()
+  window.jtAdmin = function () { open(); };
+  if (!window.__JT_NO_CORNER__) window.addEventListener('pointerdown', function (e) {
     if (e.isPrimary === false) return;
     downAt = inCorner(e) ? Date.now() : 0;
     if (!downAt) taps = [];
